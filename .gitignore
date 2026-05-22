@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Swift / SPM build
+MorningBriefingApp/.build/
+MorningBriefingApp/*.xcodeproj
+MorningBriefingApp/*.xcworkspace
+*.o
+*.d
+
+# Xcode user state
+*.xcuserstate
+xcuserdata/
+
+# macOS
+.DS_Store
+
+# Local data
+~/.morningbriefing/
