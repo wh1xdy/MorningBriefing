@@ -8,12 +8,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: BriefingPanelController!
     private var briefingVM:      BriefingViewModel!
     private var chatVM:          ChatViewModel!
+    private var appNapToken:     NSObjectProtocol?
 
     /// Single source of truth for which popover is visible. Never set directly —
     /// use showPopover(_:) and closeActivePopover().
     private weak var activePopover: NSPopover?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Prevent App Nap so timers and file watchers stay accurate in the background
+        appNapToken = ProcessInfo.processInfo.beginActivity(
+            options: [.background, .latencyCritical],
+            reason: "MorningBriefing menubar app"
+        )
         NSApp.setActivationPolicy(.accessory)
         MainActor.assumeIsolated {
             briefingVM      = BriefingViewModel()

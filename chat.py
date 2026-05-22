@@ -121,7 +121,7 @@ def main():
     for chunk in stream_generate(
         model, tokenizer, prompt=prompt,
         max_tokens=MAX_TOKENS,
-        temp=0.7, repetition_penalty=1.3,
+        temperature=0.7, repetition_penalty=1.3,
     ):
         sys.stdout.write(chunk)
         sys.stdout.flush()
