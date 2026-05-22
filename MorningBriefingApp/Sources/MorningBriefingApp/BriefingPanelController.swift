@@ -1,11 +1,17 @@
 import AppKit
 import SwiftUI
 
-private let panelWidth:  CGFloat = 560
-private let panelHeight: CGFloat = 640
+private let panelWidth:  CGFloat = 400
+private let panelHeight: CGFloat = 600
 
 final class BriefingPanelController {
     private var panel: NSPanel?
+
+    var isVisible: Bool { panel?.isVisible == true }
+
+    func closeIfVisible() {
+        panel?.close()
+    }
 
     func show(briefingVM: BriefingViewModel, chatVM: ChatViewModel) {
         if let existing = panel, existing.isVisible {
@@ -27,9 +33,11 @@ final class BriefingPanelController {
         p.isMovableByWindowBackground = true
 
         let hosting = NSHostingController(
-            rootView: ExpandedView(briefingVM: briefingVM, chatVM: chatVM) {
-                p.close()
-            }
+            rootView: MainPopoverView(
+                briefingVM: briefingVM,
+                chatVM: chatVM,
+                onExpand: { p.close() }
+            )
         )
         hosting.view.wantsLayer           = true
         hosting.view.layer?.cornerRadius  = 16
@@ -47,45 +55,6 @@ final class BriefingPanelController {
             x: frame.midX - panelWidth  / 2,
             y: frame.midY - panelHeight / 2
         ))
-    }
-}
-
-private struct ExpandedView: View {
-    @ObservedObject var briefingVM: BriefingViewModel
-    @ObservedObject var chatVM:     ChatViewModel
-    let onClose: () -> Void
-
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            GradientBackground()
-
-            HStack(spacing: 0) {
-                PopoverView(vm: briefingVM)
-                    .frame(width: 360)
-                Divider().opacity(0.25)
-                ChatView(
-                    vm: chatVM,
-                    briefingVM: briefingVM,
-                    onExpand: { /* already expanded */ }
-                )
-                .frame(width: 200)
-            }
-
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .padding(12)
-        }
-        .frame(width: panelWidth, height: panelHeight)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
-        )
-        .background(WindowDragArea())
     }
 }
 

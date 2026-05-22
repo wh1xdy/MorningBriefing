@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Close whatever is open, then open `popover`. No-op if it is already shown.
     private func showPopover(_ popover: NSPopover) {
+        panelController.closeIfVisible()
         guard let btn = statusItem.button else { return }
         if let active = activePopover, active !== popover {
             active.close()
@@ -87,6 +88,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func statusItemClicked() {
+        if panelController.isVisible {
+            panelController.closeIfVisible()
+            return
+        }
         if popover.isShown {
             closeActivePopover()
         } else {

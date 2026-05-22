@@ -167,7 +167,7 @@ struct PopoverView: View {
                 Text(r.plants.joined(separator: ", "))
                     .font(.callout.weight(.medium))
                 if let mw = r.totalUnavailMw {
-                    Text("\(mw) MW unavailable")
+                    Text("\(mw) MW otillgängliga")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

@@ -17,11 +17,11 @@ MAX_TOKENS   = 250
 
 SYSTEM = (
     "Du är en kortfattad energianalytiker för den nordiska elmarknaden. "
-    "Svara ALLTID på ren svenska — inga engelska ord överhuvudtaget. "
-    "Använd svenska facktermer: 'otillgänglig' (inte unavailable), "
-    "'kärnkraftsblock' (inte nuclear unit), 'effekt' (inte capacity), "
-    "'priszon' (inte bidding zone), 'oplanerat driftstopp' (inte unplanned outage). "
-    "Max 3 meningar. Faktabaserad, ingen inledning eller hälsningsfras."
+    "Svara ALLTID på ren svenska oavsett vilket språk frågan ställs på. "
+    "Skriv ALDRIG engelska ord eller fraser, inte ens inom parentes. "
+    "Rätt svenska facktermer: 'otillgänglig', 'kärnkraftsblock', 'effekt', "
+    "'priszon', 'oplanerat driftstopp', 'vindkraft', 'vattenkraft'. "
+    "Max 3 meningar. Faktabaserad. Ingen inledning, ingen hälsningsfras, inga parenteser."
 )
 
 
@@ -104,6 +104,11 @@ def main():
     except Exception:
         history = []
 
+    # Keep at most the last 3 complete turns (6 messages) to avoid context overflow
+    # that triggers repetition loops in the model.
+    if len(history) > 6:
+        history = history[-6:]
+
     context  = load_context()
     messages = build_messages(history, args.question, context)
 
@@ -113,8 +118,11 @@ def main():
     prompt = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
     )
-    answer = generate(model, tokenizer, prompt=prompt,
-                      max_tokens=MAX_TOKENS, verbose=False)
+    answer = generate(
+        model, tokenizer, prompt=prompt,
+        max_tokens=MAX_TOKENS, verbose=False,
+        temp=0.7, repetition_penalty=1.3,
+    )
 
     print(json.dumps({"answer": answer.strip(), "error": None}, ensure_ascii=False))
 
