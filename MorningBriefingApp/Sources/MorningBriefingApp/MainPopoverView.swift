@@ -3,7 +3,8 @@ import SwiftUI
 struct MainPopoverView: View {
     @ObservedObject var briefingVM: BriefingViewModel
     @ObservedObject var chatVM:     ChatViewModel
-    var onExpand: () -> Void
+    var onExpand:  () -> Void
+    var onClose:   () -> Void = {}
     var isDetached: Bool = false
 
     @State private var showingBriefing = true
@@ -97,8 +98,17 @@ struct MainPopoverView: View {
             }
             .buttonStyle(.plain).help("Uppdatera briefing")
 
-            // Expand button only in popover mode — native close button handles detached mode
-            if !isDetached {
+            if isDetached {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .background(Color.primary.opacity(0.08), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Stäng")
+            } else {
                 Button(action: onExpand) {
                     Image(systemName: "arrow.up.left.and.arrow.down.right").imageScale(.small)
                 }

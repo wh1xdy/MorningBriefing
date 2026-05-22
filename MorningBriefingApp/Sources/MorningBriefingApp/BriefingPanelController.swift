@@ -22,24 +22,26 @@ final class BriefingPanelController: NSObject, NSWindowDelegate {
 
         let p = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
-            styleMask:   [.nonactivatingPanel, .titled, .closable, .fullSizeContentView],
+            styleMask:   [.nonactivatingPanel, .borderless],
             backing:     .buffered,
             defer:       false
         )
-        p.titlebarAppearsTransparent = true
-        p.titleVisibility            = .hidden
-        p.isReleasedWhenClosed       = false
-        p.isOpaque                   = false
-        p.backgroundColor            = .clear
-        p.hasShadow                  = true
+        p.isReleasedWhenClosed        = false
+        p.isOpaque                    = false
+        p.backgroundColor             = .clear
+        p.hasShadow                   = true
         p.isMovableByWindowBackground = true
-        p.delegate                   = self
+        p.delegate                    = self
 
         let hosting = NSHostingController(
             rootView: MainPopoverView(
                 briefingVM: briefingVM,
                 chatVM: chatVM,
-                onExpand: {},       // native close button is used
+                onExpand: {},
+                onClose: { [weak p] in
+                    guard let p else { return }
+                    BriefingPanelController.fadeClose(p)
+                },
                 isDetached: true
             )
         )
@@ -69,7 +71,7 @@ final class BriefingPanelController: NSObject, NSWindowDelegate {
         return false
     }
 
-    private static func fadeClose(_ p: NSPanel) {
+    static func fadeClose(_ p: NSPanel) {
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.18
             p.animator().alphaValue = 0
