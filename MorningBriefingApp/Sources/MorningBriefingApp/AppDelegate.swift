@@ -112,7 +112,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func openPanel() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            // Suppress the popover's close animation so it vanishes instantly
+            // before the panel fades in — prevents the two windows overlapping.
+            self.popover.animates = false
             self.closeActivePopover()
+            self.popover.animates = true
             self.panelController.show(briefingVM: self.briefingVM, chatVM: self.chatVM)
         }
     }
