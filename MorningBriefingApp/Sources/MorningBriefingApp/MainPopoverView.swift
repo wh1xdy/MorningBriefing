@@ -13,6 +13,31 @@ struct MainPopoverView: View {
     @FocusState private var chatFocused: Bool
 
     var body: some View {
+        Group {
+            if isDetached {
+                mainContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                mainContent
+                    .frame(width: 340, height: 520)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .overlay(RoundedRectangle(cornerRadius: 16)
+                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+            }
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.3)) { appeared = true }
+        }
+        .onChange(of: showingBriefing) { _, isNowBriefing in
+            if !isNowBriefing { chatFocused = true }
+            appeared = false
+            withAnimation(.easeOut(duration: 0.25)) { appeared = true }
+        }
+        .sheet(isPresented: $showSettings) { SettingsView() }
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
         ZStack {
             GradientBackground()
             VStack(spacing: 0) {
@@ -38,19 +63,6 @@ struct MainPopoverView: View {
             .opacity(appeared ? 1 : 0)
             .offset(y: appeared ? 0 : -10)
         }
-        .frame(width: 340, height: 520)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16)
-            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.3)) { appeared = true }
-        }
-        .onChange(of: showingBriefing) { _, isNowBriefing in
-            if !isNowBriefing { chatFocused = true }
-            appeared = false
-            withAnimation(.easeOut(duration: 0.25)) { appeared = true }
-        }
-        .sheet(isPresented: $showSettings) { SettingsView() }
     }
 
     // MARK: – Header
@@ -85,14 +97,13 @@ struct MainPopoverView: View {
             }
             .buttonStyle(.plain).help("Uppdatera briefing")
 
-            Button(action: onExpand) {
-                Image(systemName: isDetached
-                      ? "arrow.down.right.and.arrow.up.left"
-                      : "arrow.up.left.and.arrow.down.right")
-                    .imageScale(.small)
+            // Expand button only in popover mode — native close button handles detached mode
+            if !isDetached {
+                Button(action: onExpand) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right").imageScale(.small)
+                }
+                .buttonStyle(.plain).help("Expandera")
             }
-            .buttonStyle(.plain)
-            .help(isDetached ? "Stäng" : "Expandera")
 
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape").imageScale(.small)
@@ -139,7 +150,8 @@ struct MainPopoverView: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("SE3 Spot", systemImage: "bolt.fill")
                 .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            PriceChartView(prices: prices, currentHour: Calendar.current.component(.hour, from: .now))
+            let combined = combinedPrices(today: prices, tomorrow: elpris?.tomorrowPrices)
+            PriceChartView(prices: combined, currentHour: Calendar.current.component(.hour, from: .now))
                 .opacity(appeared ? 1 : 0)
                 .animation(.easeIn(duration: 0.2).delay(0.1), value: appeared)
             if let e = elpris {
@@ -152,6 +164,11 @@ struct MainPopoverView: View {
         }
         .padding(12)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func combinedPrices(today: [HourPrice], tomorrow: [HourPrice]?) -> [HourPrice] {
+        guard let t = tomorrow, !t.isEmpty else { return today }
+        return today + t.map { HourPrice(hour: $0.hour + 24, priceOreKwh: $0.priceOreKwh) }
     }
 
     private func statPill(_ label: String, _ value: String) -> some View {
@@ -213,7 +230,7 @@ struct MainPopoverView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        if chatVM.messages.isEmpty {
+                        if chatVM.messages.isEmpty && !chatVM.isLoading {
                             Text("Ställ en fråga om elmarknaden eller dagens briefing.")
                                 .font(.callout).foregroundStyle(.secondary)
                                 .padding(.horizontal, 12).padding(.vertical, 10)
@@ -242,9 +259,18 @@ struct MainPopoverView: View {
                         }
 
                         if chatVM.isLoading {
-                            HStack(spacing: 6) {
-                                ProgressView().scaleEffect(0.65)
-                                Text("Tänker…").font(.callout).foregroundStyle(.secondary)
+                            if chatVM.streamingText.isEmpty {
+                                HStack(spacing: 6) {
+                                    ProgressView().scaleEffect(0.65)
+                                    Text("Tänker…").font(.callout).foregroundStyle(.secondary)
+                                }
+                            } else {
+                                Text(chatVM.streamingText)
+                                    .font(.body)
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    .background(.quaternary.opacity(0.5),
+                                                in: RoundedRectangle(cornerRadius: 12))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         } else if let err = chatVM.error {
                             Text("Fel: \(err)").font(.caption).foregroundStyle(.red)
@@ -263,6 +289,9 @@ struct MainPopoverView: View {
                 }
                 .onChange(of: chatVM.isLoading) { _, _ in
                     withAnimation { proxy.scrollTo("bottom") }
+                }
+                .onChange(of: chatVM.streamingText) { _, _ in
+                    proxy.scrollTo("bottom")
                 }
             }
 

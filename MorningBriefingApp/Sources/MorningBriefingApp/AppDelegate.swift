@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem:      NSStatusItem!
@@ -23,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             briefingVM.loadCachedIfAvailable()
         }
         observeWake()
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     // MARK: – Mutual exclusion

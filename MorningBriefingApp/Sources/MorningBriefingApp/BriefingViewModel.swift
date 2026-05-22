@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import UserNotifications
 
 private let home            = FileManager.default.homeDirectoryForCurrentUser
 private let outputURL       = home.appendingPathComponent(".morningbriefing/latest.json")
@@ -28,15 +29,15 @@ final class BriefingViewModel: ObservableObject {
     @Published var result: BriefingResult?
     @Published var stage:  BriefingStage = .idle
 
-    /// Current SE3 average price for menubar badge (nil until first successful load)
+    /// Current-hour SE3 price for menubar badge (nil until first successful load)
     @Published var currentPriceLabel: String?
 
-    private var fileSource: DispatchSourceFileSystemObject?
+    private var fileSource:  DispatchSourceFileSystemObject?
     private var statusTimer: Timer?
+    private var hourTimer:   Timer?
 
     // MARK: – Public
 
-    /// Only triggers if a briefing hasn't run today yet.
     func triggerBriefingIfNeeded() {
         guard !hasBriefedToday() else { return }
         triggerBriefing()
@@ -95,11 +96,8 @@ final class BriefingViewModel: ObservableObject {
     // MARK: – File watcher
 
     private func watchOutputFile() {
-        // Ensure parent directory exists but do NOT create/overwrite the output file —
-        // bridge.py owns that file and we must not clobber its content.
         try? FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(),
                                                   withIntermediateDirectories: true)
-        // If the file doesn't exist yet, kqueue can't watch it — use a timer fallback.
         guard FileManager.default.fileExists(atPath: outputURL.path) else {
             startOutputPolling(); return
         }
@@ -128,16 +126,53 @@ final class BriefingViewModel: ObservableObject {
         fileSource = nil
         stopStatusPolling()
         stampToday()
-        updatePriceBadge(decoded)
+        updateCurrentHourPrice()
+        scheduleHourlyPriceTick()
+        postBriefingReadyNotification(decoded)
     }
 
-    private func updatePriceBadge(_ r: BriefingResult) {
-        if let avg = r.plugins.elpris?.data?.avgPrice {
+    // MARK: – Hourly price badge
+
+    private func updateCurrentHourPrice() {
+        guard let prices = result?.plugins.elpris?.data?.prices else { return }
+        let hour = Calendar.current.component(.hour, from: Date())
+        if let hp = prices.first(where: { $0.hour == hour }) {
+            currentPriceLabel = String(format: "%.0f", hp.priceOreKwh)
+        } else if let avg = result?.plugins.elpris?.data?.avgPrice {
             currentPriceLabel = String(format: "%.0f", avg)
         }
     }
 
-    // MARK: – Output file polling (fallback when file didn't exist at watch-time)
+    private func scheduleHourlyPriceTick() {
+        hourTimer?.invalidate()
+        let comps = Calendar.current.dateComponents([.minute, .second], from: Date())
+        let secsToNextHour = Double(3600 - (comps.minute ?? 0) * 60 - (comps.second ?? 0))
+        Timer.scheduledTimer(withTimeInterval: secsToNextHour, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateCurrentHourPrice()
+                self?.hourTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+                    Task { @MainActor [weak self] in self?.updateCurrentHourPrice() }
+                }
+            }
+        }
+    }
+
+    // MARK: – Notification
+
+    private func postBriefingReadyNotification(_ r: BriefingResult) {
+        let content = UNMutableNotificationContent()
+        content.title = "MorningBriefing klar"
+        if let avg = r.plugins.elpris?.data?.avgPrice {
+            content.body = String(format: "SE3 snitt idag: %.0f öre/kWh", avg)
+        } else {
+            content.body = "Dagens briefing är redo."
+        }
+        content.sound = .default
+        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(req) { _ in }
+    }
+
+    // MARK: – Output file polling
 
     private var outputTimer: Timer?
 
@@ -147,7 +182,7 @@ final class BriefingViewModel: ObservableObject {
                 guard let self else { return }
                 if FileManager.default.fileExists(atPath: outputURL.path) {
                     self.outputTimer?.invalidate(); self.outputTimer = nil
-                    self.watchOutputFile()          // switch to kqueue now the file exists
+                    self.watchOutputFile()
                     self.parseOutputFile()
                 }
             }

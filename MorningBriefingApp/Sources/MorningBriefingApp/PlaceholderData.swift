@@ -41,6 +41,7 @@ extension BriefingResult {
                         HourPrice(hour: 22, priceOreKwh: 96.80),
                         HourPrice(hour: 23, priceOreKwh: 88.03),
                     ],
+                    tomorrowPrices: nil,
                     avgPrice: 90.23, minPrice: 20.26, maxPrice: 145.07
                 )
             ),

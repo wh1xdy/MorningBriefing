@@ -13,14 +13,14 @@ struct ChatMessage: Identifiable {
 
 @MainActor
 final class ChatViewModel: ObservableObject {
-    @Published var messages:   [ChatMessage] = []
+    @Published var messages:      [ChatMessage] = []
+    @Published var streamingText: String        = ""
     @Published var isLoading = false
     @Published var error: String?
 
     func send(_ question: String) {
         guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        // Capture history BEFORE appending new user message
         let historyPayload: [[String: String]] = messages.map { msg in
             ["role": msg.role == .user ? "user" : "assistant", "content": msg.text]
         }
@@ -28,32 +28,42 @@ final class ChatViewModel: ObservableObject {
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
 
         messages.append(ChatMessage(role: .user, text: question))
-        error     = nil
-        isLoading = true
+        streamingText = ""
+        error         = nil
+        isLoading     = true
 
-        let task = Process()
-        let pipe = Pipe()
+        let task       = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
         task.executableURL  = URL(fileURLWithPath: pythonPath)
         task.arguments      = [chatPath, "--question", question, "--history", historyJSON]
-        task.standardOutput = pipe
-        task.standardError  = Pipe()
+        task.standardOutput = stdoutPipe
+        task.standardError  = stderrPipe
 
-        task.terminationHandler = { [weak self] _ in
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            DispatchQueue.main.async {
+        // Stream tokens as they arrive
+        stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.streamingText += chunk
+            }
+        }
+
+        task.terminationHandler = { [weak self] p in
+            let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
                 self.isLoading = false
-                guard
-                    let json   = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                    let answer = json["answer"] as? String
-                else {
-                    self.error = String(data: data, encoding: .utf8) ?? "Okänt fel"
-                    return
-                }
-                if let err = json["error"] as? String, !err.isEmpty {
-                    self.error = err
+                if p.terminationStatus != 0 {
+                    self.error = String(data: errData, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Okänt fel"
+                    self.streamingText = ""
+                } else if !self.streamingText.isEmpty {
+                    self.messages.append(ChatMessage(role: .assistant, text: self.streamingText))
+                    self.streamingText = ""
                 } else {
-                    self.messages.append(ChatMessage(role: .assistant, text: answer))
+                    self.error = "Inget svar mottaget"
                 }
             }
         }

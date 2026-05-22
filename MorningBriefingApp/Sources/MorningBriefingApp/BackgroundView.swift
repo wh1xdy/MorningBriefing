@@ -15,7 +15,7 @@ struct GradientBackground: View {
                 startPoint: .topLeading,
                 endPoint:   .bottomTrailing
             )
-            .ignoresSafeArea()
         }
+        .ignoresSafeArea()
     }
 }

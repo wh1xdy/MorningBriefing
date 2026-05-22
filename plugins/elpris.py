@@ -10,7 +10,7 @@ Endpoint status (tested 2026-05-22):
 """
 import json
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 ZONE = "SE3"
@@ -59,19 +59,17 @@ def _get(url: str, params: dict) -> dict:
     return resp.json()
 
 
-def fetch_prices(delivery_area: str = ZONE, currency: str = CURRENCY) -> dict:
-    today = datetime.now(TZ).date().isoformat()
+def _fetch_for_date(date_str: str, delivery_area: str, currency: str) -> tuple[list[dict], str]:
+    """Fetch and parse prices for a given date string (YYYY-MM-DD). Returns (prices, endpoint_used)."""
     params = {
         "market":       "DayAhead",
         "deliveryArea": delivery_area,
         "currency":     currency,
-        "date":         today,
+        "date":         date_str,
     }
-
     raw = None
     used_endpoint = None
     last_exc = None
-
     for url in (PRIMARY_URL, FALLBACK_URL):
         try:
             raw = _get(url, params)
@@ -80,37 +78,57 @@ def fetch_prices(delivery_area: str = ZONE, currency: str = CURRENCY) -> dict:
         except requests.HTTPError as e:
             last_exc = e
             if e.response is not None and e.response.status_code in (401, 403):
-                continue  # try fallback
+                continue
             raise
         except requests.RequestException as e:
             last_exc = e
             continue
-
     if raw is None:
         raise RuntimeError(f"Both price endpoints failed. Last error: {last_exc}")
-
     prices = _parse_entries(raw, delivery_area)
+    return prices, used_endpoint
+
+
+def fetch_prices(delivery_area: str = ZONE, currency: str = CURRENCY) -> dict:
+    now = datetime.now(TZ)
+    today = now.date().isoformat()
+    tomorrow = (now.date() + timedelta(days=1)).isoformat()
+
+    prices, used_endpoint = _fetch_for_date(today, delivery_area, currency)
     if not prices:
-        raise ValueError(f"No price entries for {delivery_area} in response from {used_endpoint}")
+        raise ValueError(f"No price entries for {delivery_area} on {today}")
 
     avg = round(sum(p["price_ore_kwh"] for p in prices) / len(prices), 2)
     mx  = max(p["price_ore_kwh"] for p in prices)
     mn  = min(p["price_ore_kwh"] for p in prices)
 
+    # Tomorrow's prices are published ~13:00 CET — silently omit if unavailable
+    tomorrow_prices = None
+    try:
+        t_prices, _ = _fetch_for_date(tomorrow, delivery_area, currency)
+        if t_prices:
+            tomorrow_prices = t_prices
+    except Exception:
+        pass
+
+    data = {
+        "zone":          delivery_area,
+        "currency":      currency,
+        "unit":          "öre/kWh",
+        "date":          today,
+        "prices":        prices,
+        "avg_price":     avg,
+        "max_price":     mx,
+        "min_price":     mn,
+        "endpoint_used": used_endpoint,
+    }
+    if tomorrow_prices is not None:
+        data["tomorrow_prices"] = tomorrow_prices
+
     return {
         "plugin":  "elpris",
         "summary": f"{delivery_area} snittpris {today}: {avg} öre/kWh (min {mn} / max {mx}). Källa: {used_endpoint}",
-        "data": {
-            "zone":         delivery_area,
-            "currency":     currency,
-            "unit":         "öre/kWh",
-            "date":         today,
-            "prices":       prices,
-            "avg_price":    avg,
-            "max_price":    mx,
-            "min_price":    mn,
-            "endpoint_used": used_endpoint,
-        },
+        "data": data,
     }
 
 

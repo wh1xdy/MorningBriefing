@@ -8,8 +8,15 @@ struct PriceChartView: View {
     @State private var animatedDomain: Int = 0
     @State private var pulseScale: CGFloat = 1.0
 
+    private var maxHour: Int { prices.map(\.hour).max() ?? 23 }
+    private var has48h: Bool { maxHour > 23 }
+    private var domainEnd: Int { has48h ? 47 : 23 }
     private var maxY: Double { (prices.map(\.priceOreKwh).max() ?? 100) * 1.15 }
     private var currentPrice: Double? { prices.first(where: { $0.hour == currentHour })?.priceOreKwh }
+
+    private var xAxisValues: [Int] {
+        has48h ? [0, 6, 12, 18, 24, 30, 36, 42, 47] : [0, 6, 12, 18, 23]
+    }
 
     var body: some View {
         Chart {
@@ -36,6 +43,19 @@ struct PriceChartView: View {
                 .interpolationMethod(.catmullRom)
             }
 
+            // Today/tomorrow separator
+            if has48h && animatedDomain >= 24 {
+                RuleMark(x: .value("sep", 24))
+                    .foregroundStyle(Color.secondary.opacity(0.4))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    .annotation(position: .top, alignment: .leading) {
+                        Text("Imorgon")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                            .offset(x: 3, y: -2)
+                    }
+            }
+
             // Current-hour pulse dot
             if let cp = currentPrice, currentHour <= animatedDomain {
                 PointMark(
@@ -53,11 +73,16 @@ struct PriceChartView: View {
                 .symbolSize(36 * pulseScale)
             }
         }
-        .chartXScale(domain: 0...23)
+        .chartXScale(domain: 0...domainEnd)
         .chartXAxis {
-            AxisMarks(values: [0, 6, 12, 18, 23]) { v in
+            AxisMarks(values: xAxisValues) { v in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.3))
-                AxisValueLabel { Text("\(v.as(Int.self) ?? 0)h").font(.caption2).foregroundStyle(.secondary) }
+                AxisValueLabel {
+                    let h = v.as(Int.self) ?? 0
+                    Text(h >= 24 ? "\(h - 24)h" : "\(h)h")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .chartYAxis {
@@ -70,7 +95,7 @@ struct PriceChartView: View {
         .frame(height: 100)
         .onAppear {
             withAnimation(.spring(duration: 0.6, bounce: 0.1)) {
-                animatedDomain = prices.map(\.hour).max() ?? 23
+                animatedDomain = maxHour
             }
             withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
                 pulseScale = 2.2

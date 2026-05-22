@@ -89,9 +89,18 @@ struct ChatView: View {
                     }
 
                     if vm.isLoading {
-                        HStack(spacing: 6) {
-                            ProgressView().scaleEffect(0.65)
-                            Text("Tänker…").font(.callout).foregroundStyle(.secondary)
+                        if vm.streamingText.isEmpty {
+                            HStack(spacing: 6) {
+                                ProgressView().scaleEffect(0.65)
+                                Text("Tänker…").font(.callout).foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Text(vm.streamingText)
+                                .font(.body)
+                                .padding(.horizontal, 12).padding(.vertical, 8)
+                                .background(.quaternary.opacity(0.5),
+                                            in: RoundedRectangle(cornerRadius: 12))
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     } else if let err = vm.error {
                         Text("Fel: \(err)")
@@ -103,11 +112,17 @@ struct ChatView: View {
                 .padding(14)
                 .animation(.easeOut(duration: 0.2), value: vm.messages.count)
             }
+            .onAppear {
+                DispatchQueue.main.async { proxy.scrollTo("bottom") }
+            }
             .onChange(of: vm.messages.count) { _, _ in
                 withAnimation { proxy.scrollTo("bottom") }
             }
             .onChange(of: vm.isLoading) { _, _ in
                 withAnimation { proxy.scrollTo("bottom") }
+            }
+            .onChange(of: vm.streamingText) { _, _ in
+                proxy.scrollTo("bottom")
             }
         }
     }

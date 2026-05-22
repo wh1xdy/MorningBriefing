@@ -112,24 +112,24 @@ def main():
     context  = load_context()
     messages = build_messages(history, args.question, context)
 
-    from mlx_lm import load, generate
+    from mlx_lm import load, stream_generate
     model, tokenizer = load(MODEL_ID)
 
     prompt = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
     )
-    answer = generate(
+    for chunk in stream_generate(
         model, tokenizer, prompt=prompt,
-        max_tokens=MAX_TOKENS, verbose=False,
+        max_tokens=MAX_TOKENS,
         temp=0.7, repetition_penalty=1.3,
-    )
-
-    print(json.dumps({"answer": answer.strip(), "error": None}, ensure_ascii=False))
+    ):
+        sys.stdout.write(chunk)
+        sys.stdout.flush()
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print(json.dumps({"answer": None, "error": str(e)}, ensure_ascii=False))
+        sys.stderr.write(str(e) + "\n")
         sys.exit(1)
