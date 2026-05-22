@@ -4,6 +4,7 @@ struct MainPopoverView: View {
     @ObservedObject var briefingVM: BriefingViewModel
     @ObservedObject var chatVM:     ChatViewModel
     var onExpand: () -> Void
+    var isDetached: Bool = false
 
     @State private var showingBriefing = true
     @State private var appeared        = false
@@ -85,9 +86,13 @@ struct MainPopoverView: View {
             .buttonStyle(.plain).help("Uppdatera briefing")
 
             Button(action: onExpand) {
-                Image(systemName: "arrow.up.left.and.arrow.down.right").imageScale(.small)
+                Image(systemName: isDetached
+                      ? "arrow.down.right.and.arrow.up.left"
+                      : "arrow.up.left.and.arrow.down.right")
+                    .imageScale(.small)
             }
-            .buttonStyle(.plain).help("Expandera")
+            .buttonStyle(.plain)
+            .help(isDetached ? "Stäng" : "Expandera")
 
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape").imageScale(.small)

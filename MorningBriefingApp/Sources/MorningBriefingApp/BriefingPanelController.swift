@@ -36,7 +36,8 @@ final class BriefingPanelController {
             rootView: MainPopoverView(
                 briefingVM: briefingVM,
                 chatVM: chatVM,
-                onExpand: { p.close() }
+                onExpand: { [weak p] in Self.fadeClose(p) },
+                isDetached: true
             )
         )
         hosting.view.wantsLayer           = true
@@ -45,8 +46,26 @@ final class BriefingPanelController {
 
         p.contentViewController = hosting
         centerOnScreen(p)
+        p.alphaValue = 0
         p.makeKeyAndOrderFront(nil)
         panel = p
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration    = 0.22
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            p.animator().alphaValue = 1
+        }
+    }
+
+    private static func fadeClose(_ p: NSPanel?) {
+        guard let p else { return }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.18
+            p.animator().alphaValue = 0
+        }, completionHandler: {
+            p.close()
+            p.alphaValue = 1
+        })
     }
 
     private func centerOnScreen(_ p: NSPanel) {
