@@ -48,6 +48,8 @@ final class BriefingPanelController: NSObject, NSWindowDelegate {
         hosting.view.layer?.masksToBounds = true
 
         p.contentViewController = hosting
+        // NSHostingController auto-sizes to intrinsic content; override it.
+        p.setContentSize(NSSize(width: panelWidth, height: panelHeight))
         centerOnScreen(p)
         p.alphaValue = 0
         p.makeKeyAndOrderFront(nil)
