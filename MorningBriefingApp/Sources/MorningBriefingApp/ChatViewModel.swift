@@ -21,8 +21,21 @@ final class ChatViewModel: ObservableObject {
     func send(_ question: String) {
         guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        let historyPayload: [[String: String]] = messages.map { msg in
-            ["role": msg.role == .user ? "user" : "assistant", "content": msg.text]
+        // Build history from complete user/assistant pairs only.
+        // This guarantees strict alternation and prevents the MLX
+        // "Conversation roles must alternate" error caused by orphaned
+        // user messages from previous failed turns.
+        var historyPayload: [[String: String]] = []
+        var i = 0
+        while i + 1 < messages.count {
+            let a = messages[i], b = messages[i + 1]
+            if a.role == .user && b.role == .assistant {
+                historyPayload.append(["role": "user",      "content": a.text])
+                historyPayload.append(["role": "assistant", "content": b.text])
+                i += 2
+            } else {
+                i += 1
+            }
         }
         let historyJSON = (try? JSONSerialization.data(withJSONObject: historyPayload))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
@@ -40,7 +53,6 @@ final class ChatViewModel: ObservableObject {
         task.standardOutput = stdoutPipe
         task.standardError  = stderrPipe
 
-        // Stream tokens as they arrive
         stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }

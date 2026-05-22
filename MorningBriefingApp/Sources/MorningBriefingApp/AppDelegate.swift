@@ -2,56 +2,34 @@ import AppKit
 import SwiftUI
 import UserNotifications
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var statusItem:      NSStatusItem!
-    private var popover:         NSPopover!
-    private var panelController: BriefingPanelController!
-    private var briefingVM:      BriefingViewModel!
-    private var chatVM:          ChatViewModel!
-    private var appNapToken:     NSObjectProtocol?
+extension Notification.Name {
+    static let mbPopoverWillOpen = Notification.Name("MBPopoverWillOpen")
+}
 
-    /// Single source of truth for which popover is visible. Never set directly —
-    /// use showPopover(_:) and closeActivePopover().
-    private weak var activePopover: NSPopover?
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var statusItem: NSStatusItem!
+    private var popover:    NSPopover!
+    private var briefingVM: BriefingViewModel!
+    private var chatVM:     ChatViewModel!
+    private var appNapToken: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Prevent App Nap so timers and file watchers stay accurate in the background
         appNapToken = ProcessInfo.processInfo.beginActivity(
             options: [.background, .latencyCritical],
             reason: "MorningBriefing menubar app"
         )
         NSApp.setActivationPolicy(.accessory)
         MainActor.assumeIsolated {
-            briefingVM      = BriefingViewModel()
-            chatVM          = ChatViewModel()
-            panelController = BriefingPanelController()
+            briefingVM = BriefingViewModel()
+            chatVM     = ChatViewModel()
             buildStatusItem()
-            buildPopovers()
+            buildPopover()
             briefingVM.loadCachedIfAvailable()
         }
         observeWake()
         if Bundle.main.bundleIdentifier != nil {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
-    }
-
-    // MARK: – Mutual exclusion
-
-    /// Close whatever is open, then open `popover`. No-op if it is already shown.
-    private func showPopover(_ popover: NSPopover) {
-        panelController.closeIfVisible()
-        guard let btn = statusItem.button else { return }
-        if let active = activePopover, active !== popover {
-            active.close()
-        }
-        guard !popover.isShown else { return }
-        popover.show(relativeTo: btn.bounds, of: btn, preferredEdge: .minY)
-        activePopover = popover
-    }
-
-    private func closeActivePopover() {
-        activePopover?.close()
-        activePopover = nil
     }
 
     // MARK: – Status item
@@ -62,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         btn.image   = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "MorningBriefing")
         btn.action  = #selector(statusItemClicked)
         btn.target  = self
+        btn.toolTip = "MorningBriefing"
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -81,43 +60,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: – Popovers
+    // MARK: – Popover
 
-    private func buildPopovers() {
+    private func buildPopover() {
         popover = NSPopover()
         popover.contentSize = NSSize(width: 340, height: 520)
         popover.behavior    = .transient
         popover.animates    = true
         popover.contentViewController = NSHostingController(
-            rootView: MainPopoverView(
-                briefingVM: briefingVM,
-                chatVM: chatVM,
-                onExpand: { [weak self] in self?.openPanel() }
-            )
+            rootView: ContentView(briefingVM: briefingVM, chatVM: chatVM)
         )
     }
 
     @objc private func statusItemClicked() {
-        if panelController.isVisible {
-            panelController.closeIfVisible()
-            return
-        }
+        guard let btn = statusItem.button else { return }
         if popover.isShown {
-            closeActivePopover()
+            popover.close()
         } else {
-            showPopover(popover)
-        }
-    }
-
-    private func openPanel() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            // Suppress the popover's close animation so it vanishes instantly
-            // before the panel fades in — prevents the two windows overlapping.
-            self.popover.animates = false
-            self.closeActivePopover()
-            self.popover.animates = true
-            self.panelController.show(briefingVM: self.briefingVM, chatVM: self.chatVM)
+            NotificationCenter.default.post(name: .mbPopoverWillOpen, object: nil)
+            MainActor.assumeIsolated { briefingVM.refreshIfStale() }
+            popover.show(relativeTo: btn.bounds, of: btn, preferredEdge: .minY)
         }
     }
 
@@ -135,8 +97,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func didWake() {
         MainActor.assumeIsolated { briefingVM.triggerBriefingIfNeeded() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self else { return }
-            self.showPopover(self.popover)
+            guard let self, let btn = self.statusItem.button else { return }
+            NotificationCenter.default.post(name: .mbPopoverWillOpen, object: nil)
+            self.popover.show(relativeTo: btn.bounds, of: btn, preferredEdge: .minY)
         }
     }
 }

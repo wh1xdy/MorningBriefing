@@ -29,12 +29,11 @@ final class BriefingViewModel: ObservableObject {
     @Published var result: BriefingResult?
     @Published var stage:  BriefingStage = .idle
 
-    /// Current-hour SE3 price for menubar badge (nil until first successful load)
     @Published var currentPriceLabel: String?
 
-    private var fileSource:  DispatchSourceFileSystemObject?
-    private var statusTimer: Timer?
-    private var hourTimer:   Timer?
+    private var fileSource:   DispatchSourceFileSystemObject?
+    private var statusTimer:  Timer?
+    private var minuteTimer:  Timer?
 
     // MARK: – Public
 
@@ -53,6 +52,16 @@ final class BriefingViewModel: ObservableObject {
     func loadCachedIfAvailable() {
         guard FileManager.default.fileExists(atPath: outputURL.path) else { return }
         parseOutputFile()
+    }
+
+    /// Re-runs the full pipeline if latest.json is older than 30 minutes.
+    func refreshIfStale() {
+        guard
+            let attrs    = try? FileManager.default.attributesOfItem(atPath: outputURL.path),
+            let modified = attrs[.modificationDate] as? Date,
+            Date().timeIntervalSince(modified) > 1800
+        else { return }
+        triggerBriefing()
     }
 
     // MARK: – Once-per-day
@@ -127,11 +136,11 @@ final class BriefingViewModel: ObservableObject {
         stopStatusPolling()
         stampToday()
         updateCurrentHourPrice()
-        scheduleHourlyPriceTick()
+        scheduleMinutelyPriceTick()
         postBriefingReadyNotification(decoded)
     }
 
-    // MARK: – Hourly price badge
+    // MARK: – Price badge (60-second tick)
 
     private func updateCurrentHourPrice() {
         guard let prices = result?.plugins.elpris?.data?.prices else { return }
@@ -143,17 +152,10 @@ final class BriefingViewModel: ObservableObject {
         }
     }
 
-    private func scheduleHourlyPriceTick() {
-        hourTimer?.invalidate()
-        let comps = Calendar.current.dateComponents([.minute, .second], from: Date())
-        let secsToNextHour = Double(3600 - (comps.minute ?? 0) * 60 - (comps.second ?? 0))
-        Timer.scheduledTimer(withTimeInterval: secsToNextHour, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateCurrentHourPrice()
-                self?.hourTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
-                    Task { @MainActor [weak self] in self?.updateCurrentHourPrice() }
-                }
-            }
+    private func scheduleMinutelyPriceTick() {
+        minuteTimer?.invalidate()
+        minuteTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.updateCurrentHourPrice() }
         }
     }
 

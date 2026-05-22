@@ -1,68 +1,63 @@
 import SwiftUI
 
-struct MainPopoverView: View {
+// MARK: – Stagger helper
+
+private extension View {
+    func fadeFromTop(_ visible: Bool, delay: Double = 0) -> some View {
+        self
+            .opacity(visible ? 1 : 0)
+            .offset(y: visible ? 0 : -10)
+            .animation(.easeInOut(duration: 0.2).delay(delay), value: visible)
+    }
+}
+
+// MARK: – ContentView
+
+struct ContentView: View {
     @ObservedObject var briefingVM: BriefingViewModel
     @ObservedObject var chatVM:     ChatViewModel
-    var onExpand:  () -> Void
-    var onClose:   () -> Void = {}
-    var isDetached: Bool = false
 
-    @State private var showingBriefing = true
-    @State private var appeared        = false
-    @State private var chatInput       = ""
-    @State private var showSettings    = false
+    @State private var mode:         Mode   = .briefing
+    @State private var appeared:     Bool   = false
+    @State private var showSettings: Bool   = false
+    @State private var chatInput:    String = ""
     @FocusState private var chatFocused: Bool
 
-    var body: some View {
-        Group {
-            if isDetached {
-                mainContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                mainContent
-                    .frame(width: 340, height: 520)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .overlay(RoundedRectangle(cornerRadius: 16)
-                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
-            }
-        }
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.3)) { appeared = true }
-        }
-        .onChange(of: showingBriefing) { _, isNowBriefing in
-            if !isNowBriefing { chatFocused = true }
-            appeared = false
-            withAnimation(.easeOut(duration: 0.25)) { appeared = true }
-        }
-        .sheet(isPresented: $showSettings) { SettingsView() }
-    }
+    enum Mode: Equatable { case briefing, chat }
 
-    @ViewBuilder
-    private var mainContent: some View {
+    var body: some View {
         ZStack {
             GradientBackground()
             VStack(spacing: 0) {
                 header
+                    .fadeFromTop(appeared, delay: 0.00)
                 Divider().opacity(0.3)
+                    .fadeFromTop(appeared, delay: 0.02)
                 Group {
-                    if showingBriefing {
-                        briefingContent
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .move(edge: .top)),
-                                removal:   .opacity
-                            ))
+                    if mode == .briefing {
+                        briefingPane.transition(.opacity)
                     } else {
-                        chatContent
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .move(edge: .top)),
-                                removal:   .opacity
-                            ))
+                        chatPane.transition(.opacity)
                     }
                 }
-                .animation(.easeOut(duration: 0.25), value: showingBriefing)
+                .animation(.easeInOut(duration: 0.25), value: mode)
             }
-            .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : -10)
+        }
+        .frame(width: 340, height: 520)
+        .onAppear { animateIn() }
+        .onReceive(NotificationCenter.default.publisher(for: .mbPopoverWillOpen)) { _ in
+            animateIn()
+        }
+        .onChange(of: mode) { _, newMode in
+            if newMode == .chat { chatFocused = true }
+        }
+        .sheet(isPresented: $showSettings) { SettingsView() }
+    }
+
+    private func animateIn() {
+        appeared = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
+            appeared = true
         }
     }
 
@@ -75,110 +70,105 @@ struct MainPopoverView: View {
             Text("MorningBriefing")
                 .font(.system(.subheadline, weight: .semibold))
             Spacer()
-
             if let avg = briefingVM.result?.plugins.elpris?.data?.avgPrice {
                 Text(String(format: "%.0f öre", avg))
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
             if briefingVM.stage != .ready && briefingVM.stage != .idle {
-                Text(briefingVM.stage.label).font(.caption).foregroundStyle(.secondary)
+                Text(briefingVM.stage.label)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .transition(.opacity)
             }
-
             Button {
-                withAnimation(.easeOut(duration: 0.25)) { showingBriefing.toggle() }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    mode = mode == .briefing ? .chat : .briefing
+                }
             } label: {
-                Image(systemName: showingBriefing ? "bubble.left" : "doc.text")
+                Image(systemName: mode == .briefing ? "bubble.left" : "doc.text")
                     .imageScale(.small)
             }
             .buttonStyle(.plain)
-            .help(showingBriefing ? "Öppna chat" : "Visa briefing")
+            .help(mode == .briefing ? "Öppna chat" : "Visa briefing")
 
             Button { briefingVM.triggerBriefing() } label: {
                 Image(systemName: "arrow.clockwise").imageScale(.small)
             }
             .buttonStyle(.plain).help("Uppdatera briefing")
 
-            if isDetached {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 22, height: 22)
-                        .background(Color.primary.opacity(0.08), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .help("Stäng")
-            } else {
-                Button(action: onExpand) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right").imageScale(.small)
-                }
-                .buttonStyle(.plain).help("Expandera")
-            }
-
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape").imageScale(.small)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).help("Inställningar")
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
     }
 
-    // MARK: – Briefing mode
+    // MARK: – Briefing pane
 
-    @ViewBuilder
-    private var briefingContent: some View {
+    private var briefingPane: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if let text = briefingVM.result?.briefing {
-                    AnimatedBriefingText(text: text)
-                } else {
-                    HStack(spacing: 8) {
-                        if briefingVM.stage != .idle { ProgressView().scaleEffect(0.7) }
-                        Text(briefingVM.stage == .idle
-                             ? "Tryck ↺ för att generera dagens briefing."
-                             : briefingVM.stage.label)
-                            .font(.body).foregroundStyle(.secondary)
-                    }
-                }
+                briefingText
+                    .fadeFromTop(appeared, delay: 0.05)
 
-                if let prices = briefingVM.result?.plugins.elpris?.data?.prices, !prices.isEmpty {
-                    chartSection(prices: prices, elpris: briefingVM.result?.plugins.elpris?.data)
+                if let elpris = briefingVM.result?.plugins.elpris?.data,
+                   !elpris.prices.isEmpty {
+                    chartCard(elpris)
+                        .fadeFromTop(appeared, delay: 0.10)
                 }
                 if let core = briefingVM.result?.plugins.core?.data {
                     recommendationCard(core)
+                        .fadeFromTop(appeared, delay: 0.14)
                 }
                 if let r = briefingVM.result?.plugins.reaktorstatus?.data, r.count > 0 {
                     reaktorCard(r)
+                        .fadeFromTop(appeared, delay: 0.18)
                 }
-                Spacer(minLength: 12)
+                Spacer(minLength: 16)
             }
             .padding(16)
         }
+        .scrollIndicators(.hidden)
     }
 
-    private func chartSection(prices: [HourPrice], elpris: ElprisData?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    @ViewBuilder
+    private var briefingText: some View {
+        if let text = briefingVM.result?.briefing {
+            AnimatedBriefingText(text: text)
+        } else {
+            HStack(spacing: 8) {
+                if briefingVM.stage != .idle { ProgressView().scaleEffect(0.7) }
+                Text(briefingVM.stage == .idle
+                     ? "Tryck ↺ för att generera dagens briefing."
+                     : briefingVM.stage.label)
+                    .font(.body).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: – Chart card
+
+    private func chartCard(_ elpris: ElprisData) -> some View {
+        let tomorrow = elpris.tomorrowPrices ?? []
+        let combined: [HourPrice] = tomorrow.isEmpty
+            ? elpris.prices
+            : elpris.prices + tomorrow.map { HourPrice(hour: $0.hour + 24, priceOreKwh: $0.priceOreKwh) }
+
+        return VStack(alignment: .leading, spacing: 8) {
             Label("SE3 Spot", systemImage: "bolt.fill")
                 .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            let combined = combinedPrices(today: prices, tomorrow: elpris?.tomorrowPrices)
-            PriceChartView(prices: combined, currentHour: Calendar.current.component(.hour, from: .now))
-                .opacity(appeared ? 1 : 0)
-                .animation(.easeIn(duration: 0.2).delay(0.1), value: appeared)
-            if let e = elpris {
-                HStack(spacing: 8) {
-                    statPill("Snitt", String(format: "%.1f öre", e.avgPrice))
-                    statPill("Min",   String(format: "%.1f öre", e.minPrice))
-                    statPill("Max",   String(format: "%.1f öre", e.maxPrice))
-                }
+            PriceChartView(
+                prices: combined,
+                currentHour: Calendar.current.component(.hour, from: .now)
+            )
+            HStack(spacing: 8) {
+                statPill("Snitt", String(format: "%.1f öre", elpris.avgPrice))
+                statPill("Min",   String(format: "%.1f öre", elpris.minPrice))
+                statPill("Max",   String(format: "%.1f öre", elpris.maxPrice))
             }
         }
         .padding(12)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private func combinedPrices(today: [HourPrice], tomorrow: [HourPrice]?) -> [HourPrice] {
-        guard let t = tomorrow, !t.isEmpty else { return today }
-        return today + t.map { HourPrice(hour: $0.hour + 24, priceOreKwh: $0.priceOreKwh) }
     }
 
     private func statPill(_ label: String, _ value: String) -> some View {
@@ -189,6 +179,8 @@ struct MainPopoverView: View {
         .padding(.horizontal, 10).padding(.vertical, 5)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
     }
+
+    // MARK: – Recommendation card
 
     private func recommendationCard(_ core: CoreData) -> some View {
         HStack(alignment: .top, spacing: 12) {
@@ -210,9 +202,9 @@ struct MainPopoverView: View {
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
         .background(.green.opacity(0.08),  in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.green.opacity(0.2)))
-        .offset(y: appeared ? 0 : 16).opacity(appeared ? 1 : 0)
-        .animation(.spring(duration: 0.4, bounce: 0.2).delay(0.25), value: appeared)
     }
+
+    // MARK: – Reaktor card
 
     private func reaktorCard(_ r: ReaktorData) -> some View {
         HStack(alignment: .top, spacing: 12) {
@@ -232,10 +224,9 @@ struct MainPopoverView: View {
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.orange.opacity(0.2)))
     }
 
-    // MARK: – Chat mode
+    // MARK: – Chat pane
 
-    @ViewBuilder
-    private var chatContent: some View {
+    private var chatPane: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -250,11 +241,11 @@ struct MainPopoverView: View {
                         ForEach(chatVM.messages) { msg in
                             if msg.role == .user {
                                 HStack {
-                                    Spacer()
+                                    Spacer(minLength: 40)
                                     Text(msg.text)
                                         .font(.body)
                                         .padding(.horizontal, 12).padding(.vertical, 8)
-                                        .background(Color.accentColor.opacity(0.15),
+                                        .background(Color.accentColor.opacity(0.2),
                                                     in: RoundedRectangle(cornerRadius: 12))
                                 }
                             } else {
@@ -264,7 +255,6 @@ struct MainPopoverView: View {
                                     .background(.quaternary.opacity(0.5),
                                                 in: RoundedRectangle(cornerRadius: 12))
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .transition(.opacity)
                             }
                         }
 
@@ -274,6 +264,7 @@ struct MainPopoverView: View {
                                     ProgressView().scaleEffect(0.65)
                                     Text("Tänker…").font(.callout).foregroundStyle(.secondary)
                                 }
+                                .padding(.horizontal, 12)
                             } else {
                                 Text(chatVM.streamingText)
                                     .font(.body)
@@ -283,22 +274,22 @@ struct MainPopoverView: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         } else if let err = chatVM.error {
-                            Text("Fel: \(err)").font(.caption).foregroundStyle(.red)
+                            Text(err)
+                                .font(.caption).foregroundStyle(.red)
+                                .padding(.horizontal, 12)
                         }
 
                         Color.clear.frame(height: 1).id("bottom")
                     }
                     .padding(14)
-                    .animation(.easeOut(duration: 0.2), value: chatVM.messages.count)
                 }
-                .onAppear {
-                    DispatchQueue.main.async { proxy.scrollTo("bottom") }
-                }
+                .scrollIndicators(.hidden)
+                .onAppear { proxy.scrollTo("bottom") }
                 .onChange(of: chatVM.messages.count) { _, _ in
-                    withAnimation { proxy.scrollTo("bottom") }
+                    withAnimation(.smooth) { proxy.scrollTo("bottom") }
                 }
                 .onChange(of: chatVM.isLoading) { _, _ in
-                    withAnimation { proxy.scrollTo("bottom") }
+                    withAnimation(.smooth) { proxy.scrollTo("bottom") }
                 }
                 .onChange(of: chatVM.streamingText) { _, _ in
                     proxy.scrollTo("bottom")
