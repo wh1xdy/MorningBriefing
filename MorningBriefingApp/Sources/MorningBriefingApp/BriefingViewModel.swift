@@ -160,6 +160,7 @@ final class BriefingViewModel: ObservableObject {
     // MARK: – Notification
 
     private func postBriefingReadyNotification(_ r: BriefingResult) {
+        guard Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
         content.title = "MorningBriefing klar"
         if let avg = r.plugins.elpris?.data?.avgPrice {

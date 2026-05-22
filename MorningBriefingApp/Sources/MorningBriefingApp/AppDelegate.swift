@@ -30,7 +30,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             briefingVM.loadCachedIfAvailable()
         }
         observeWake()
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        if Bundle.main.bundleIdentifier != nil {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        }
     }
 
     // MARK: – Mutual exclusion
