@@ -19,6 +19,7 @@ struct ContentView: View {
 
     @State private var mode:         Mode   = .briefing
     @State private var appeared:     Bool   = false
+    @State private var openToken:    UUID   = UUID()
     @State private var showSettings: Bool   = false
     @State private var chatInput:    String = ""
     @FocusState private var chatFocused: Bool
@@ -55,7 +56,8 @@ struct ContentView: View {
     }
 
     private func animateIn() {
-        appeared = false
+        openToken = UUID()   // force AnimatedBriefingText to recreate
+        appeared  = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
             appeared = true
         }
@@ -135,6 +137,7 @@ struct ContentView: View {
     private var briefingText: some View {
         if let text = briefingVM.result?.briefing {
             AnimatedBriefingText(text: text)
+                .id(openToken)
         } else {
             HStack(spacing: 8) {
                 if briefingVM.stage != .idle { ProgressView().scaleEffect(0.7) }

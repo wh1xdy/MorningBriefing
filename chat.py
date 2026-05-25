@@ -113,17 +113,21 @@ def main():
     messages = build_messages(history, args.question, context)
 
     from mlx_lm import load, stream_generate
+    from mlx_lm.sample_utils import make_sampler, make_logits_processors
     model, tokenizer = load(MODEL_ID)
 
     prompt = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
     )
-    for chunk in stream_generate(
+    sampler   = make_sampler(temp=0.7)
+    logit_fns = make_logits_processors(repetition_penalty=1.3)
+    for response in stream_generate(
         model, tokenizer, prompt=prompt,
         max_tokens=MAX_TOKENS,
-        temperature=0.7, repetition_penalty=1.3,
+        sampler=sampler,
+        logits_processors=logit_fns,
     ):
-        sys.stdout.write(chunk)
+        sys.stdout.write(response.text)
         sys.stdout.flush()
 
 
