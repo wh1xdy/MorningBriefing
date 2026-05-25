@@ -16,53 +16,71 @@ MODEL_ID     = "mlx-community/Mistral-7B-Instruct-v0.3-4bit"
 MAX_TOKENS   = 250
 
 SYSTEM = (
-    "Du är en kortfattad energianalytiker för den nordiska elmarknaden. "
-    "Svara ALLTID på ren svenska oavsett vilket språk frågan ställs på. "
-    "Skriv ALDRIG engelska ord eller fraser, inte ens inom parentes. "
-    "Rätt svenska facktermer: 'otillgänglig', 'kärnkraftsblock', 'effekt', "
-    "'priszon', 'oplanerat driftstopp', 'vindkraft', 'vattenkraft'. "
-    "Max 3 meningar. Faktabaserad. Ingen inledning, ingen hälsningsfras, inga parenteser."
+    "Du är en energianalytiker för den nordiska elmarknaden. "
+    "REGLER SOM INTE FÅR BRYTAS:\n"
+    "1. Svara ENBART på ren svenska. Inga engelska, norska, danska eller finska ord.\n"
+    "2. Använd ENBART fakta från den energidata som anges nedan. "
+    "Hitta INTE på siffror, MW-värden, anläggningsnamn eller orsaker som inte finns i datan.\n"
+    "3. Om frågan gäller något som INTE finns i datan, svara: "
+    "'Den informationen finns inte i tillgänglig data.'\n"
+    "4. Max 3 meningar. Ingen inledning, ingen hälsning, inga parenteser."
 )
 
 
 def load_context() -> str:
     if not CONTEXT_FILE.exists():
-        return ""
+        return "Ingen energidata tillgänglig."
     try:
         data = json.loads(CONTEXT_FILE.read_text())
         parts = []
-        # elpris summary
+
         elpris = (data.get("plugins") or {}).get("elpris") or {}
-        ed = (elpris.get("data") or {})
-        if ed.get("avg_price"):
-            parts.append(f"SE3 spotpris snitt: {ed['avg_price']:.1f} öre/kWh")
-        if ed.get("min_price") and ed.get("max_price"):
-            parts.append(f"Min: {ed['min_price']:.1f}, Max: {ed['max_price']:.1f} öre/kWh")
-        # core recommendation
+        ed = elpris.get("data") or {}
+        if ed.get("date"):
+            parts.append(f"Datum: {ed['date']}")
+        if ed.get("avg_price") is not None:
+            parts.append(
+                f"SE3 spotpris — snitt: {ed['avg_price']:.1f}, "
+                f"min: {ed.get('min_price', '?'):.1f}, "
+                f"max: {ed.get('max_price', '?'):.1f} öre/kWh"
+            )
+        prices = ed.get("prices") or []
+        if prices:
+            rows = "  ".join(f"{p['hour']:02d}:{p['price_ore_kwh']:.0f}" for p in prices)
+            parts.append(f"Timpriser (timme:öre/kWh): {rows}")
+        tomorrow = ed.get("tomorrow_prices") or []
+        if tomorrow:
+            rows = "  ".join(f"{p['hour']:02d}:{p['price_ore_kwh']:.0f}" for p in tomorrow)
+            parts.append(f"Morgondagens timpriser: {rows}")
+
         core = (data.get("plugins") or {}).get("core") or {}
-        cd = (core.get("data") or {})
+        cd = core.get("data") or {}
         if cd.get("cheapest_window_start") is not None:
             parts.append(
-                f"Billigast 4-timmarsperiod: {cd['cheapest_window_start']:02d}:00–"
-                f"{cd['cheapest_window_end']:02d}:00 ({cd['cheapest_window_avg']:.1f} öre/kWh)"
+                f"Billigaste 4h-fönster: {cd['cheapest_window_start']:02d}:00–"
+                f"{cd['cheapest_window_end']:02d}:00 ({cd['cheapest_window_avg']:.1f} öre/kWh, "
+                f"dagsnitt {cd.get('daily_avg', '?'):.1f} öre/kWh)"
             )
-        # reaktor
+
         reaktor = (data.get("plugins") or {}).get("reaktorstatus") or {}
-        rd = (reaktor.get("data") or {})
-        if rd.get("plants"):
+        rd = reaktor.get("data") or {}
+        if rd.get("count", 0) == 0:
+            parts.append("Nukleär UMM: inga aktiva driftstörningar.")
+        elif rd.get("plants"):
             mw = rd.get("total_unavail_mw")
             plants = ", ".join(rd["plants"])
             parts.append(
-                f"Nukleär UMM: {plants}"
-                + (f" ({mw} MW otillgängliga)" if mw else "")
+                f"Nukleär UMM ({rd['count']} st): {plants}"
+                + (f" — totalt {mw} MW otillgängliga" if mw else "")
             )
-        # briefing text
+
         briefing = data.get("briefing", "")
         if briefing:
-            parts.append(f"Sammanfattning: {briefing}")
-        return "\n".join(parts)
+            parts.append(f"Dagens sammanfattning: {briefing}")
+
+        return "\n".join(parts) if parts else "Ingen energidata tillgänglig."
     except Exception:
-        return ""
+        return "Ingen energidata tillgänglig."
 
 
 def build_messages(history: list, question: str, context: str) -> list:
@@ -119,7 +137,7 @@ def main():
     prompt = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
     )
-    sampler   = make_sampler(temp=0.7)
+    sampler   = make_sampler(temp=0.4)
     logit_fns = make_logits_processors(repetition_penalty=1.3)
     for response in stream_generate(
         model, tokenizer, prompt=prompt,
