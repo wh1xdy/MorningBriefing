@@ -13,17 +13,17 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 CONTEXT_FILE = Path.home() / ".morningbriefing/latest.json"
 MODEL_ID     = "mlx-community/Mistral-7B-Instruct-v0.3-4bit"
-MAX_TOKENS   = 250
+MAX_TOKENS   = 120
 
 SYSTEM = (
-    "Du är en energianalytiker för den nordiska elmarknaden. "
-    "REGLER SOM INTE FÅR BRYTAS:\n"
-    "1. Svara ENBART på ren svenska. Inga engelska, norska, danska eller finska ord.\n"
-    "2. Använd ENBART fakta från den energidata som anges nedan. "
-    "Hitta INTE på siffror, MW-värden, anläggningsnamn eller orsaker som inte finns i datan.\n"
-    "3. Om frågan gäller något som INTE finns i datan, svara: "
-    "'Den informationen finns inte i tillgänglig data.'\n"
-    "4. Max 3 meningar. Ingen inledning, ingen hälsning, inga parenteser."
+    "Du är en energianalytiker. Svara på svenska. "
+    "ABSOLUTA REGLER:\n"
+    "1. Använd BARA siffror och fakta som finns i energidatan nedan. Hitta inte på något.\n"
+    "2. Svar på frågor om spotpris, timpriser, kärnkraft-UMM och billigaste laddningstid är OK.\n"
+    "3. Frågor om elavtal, rörligt pris, fast pris, elnätsavgift, slutkundspris, "
+    "elbolag, kontrakt, skatter eller annat utanför spotpris/UMM/timpriser: "
+    "svara exakt 'Den informationen finns inte i tillgänglig data.' — ingenting mer.\n"
+    "4. MAX 2 meningar. Aldrig mer. Ingen inledning, inga parenteser."
 )
 
 
@@ -83,6 +83,17 @@ def load_context() -> str:
         return "Ingen energidata tillgänglig."
 
 
+_OUT_OF_SCOPE = [
+    "rörligt", "fast pris", "fastpris", "elavtal", "elbolag", "elleverantör",
+    "elnätsavgift", "elnät", "kontrakt", "skatt", "moms", "nätavgift",
+    "slutkund", "hushåll", "villa", "lägenhet", "bostad", "abonnemang",
+]
+
+def is_out_of_scope(question: str) -> bool:
+    q = question.lower()
+    return any(kw in q for kw in _OUT_OF_SCOPE)
+
+
 def build_messages(history: list, question: str, context: str) -> list:
     """Build Mistral-compatible alternating user/assistant messages."""
     context_prefix = (
@@ -126,6 +137,11 @@ def main():
     # that triggers repetition loops in the model.
     if len(history) > 6:
         history = history[-6:]
+
+    if is_out_of_scope(args.question):
+        sys.stdout.write("Den informationen finns inte i tillgänglig data.")
+        sys.stdout.flush()
+        return
 
     context  = load_context()
     messages = build_messages(history, args.question, context)
