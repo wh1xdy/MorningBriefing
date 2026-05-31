@@ -50,6 +50,26 @@ struct ReaktorData: Codable {
     }
 }
 
+struct VaderData: Codable {
+    let currentTempC:    Double?
+    let currentWindMs:   Double?
+    let currentCloudPct: Double?
+    let dailyAvgTempC:   Double?
+    let dailyAvgWindMs:  Double?
+    let windNote:        String?
+    let location:        String?
+
+    enum CodingKeys: String, CodingKey {
+        case currentTempC    = "current_temp_c"
+        case currentWindMs   = "current_wind_ms"
+        case currentCloudPct = "current_cloud_pct"
+        case dailyAvgTempC   = "daily_avg_temp_c"
+        case dailyAvgWindMs  = "daily_avg_wind_ms"
+        case windNote        = "wind_note"
+        case location
+    }
+}
+
 // Wrapper structs matching the plugin JSON envelope
 struct PluginEnvelope<T: Codable>: Codable {
     let summary: String
@@ -60,6 +80,7 @@ struct BriefingPlugins: Codable {
     let elpris:        PluginEnvelope<ElprisData>?
     let core:          PluginEnvelope<CoreData>?
     let reaktorstatus: PluginEnvelope<ReaktorData>?
+    let vader:         PluginEnvelope<VaderData>?
 }
 
 struct BriefingResult: Codable {

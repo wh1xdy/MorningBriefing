@@ -56,6 +56,15 @@ extension BriefingResult {
             reaktorstatus: PluginEnvelope(
                 summary: "1 aktiv nukleär UMM: Forsmark Block2",
                 data: ReaktorData(count: 1, plants: ["Forsmark Block2"], totalUnavailMw: 1121)
+            ),
+            vader: PluginEnvelope(
+                summary: "Stockholm nu: 16.8°C, vind 4.2 m/s.",
+                data: VaderData(
+                    currentTempC: 16.8, currentWindMs: 4.2, currentCloudPct: 55,
+                    dailyAvgTempC: 15.5, dailyAvgWindMs: 3.3,
+                    windNote: "Svag vind – begränsad vindproduktion.",
+                    location: "Stockholm"
+                )
             )
         )
     )

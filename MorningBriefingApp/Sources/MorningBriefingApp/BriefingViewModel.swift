@@ -43,7 +43,10 @@ final class BriefingViewModel: ObservableObject {
     }
 
     func triggerBriefing() {
-        guard stage == .idle || stage == .ready else { return }
+        switch stage {
+        case .aggregating, .generating: return   // already running
+        default: break
+        }
         stage = .aggregating
         startStatusPolling()
         launchBridge()

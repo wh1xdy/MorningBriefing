@@ -140,11 +140,15 @@ struct ContentView: View {
                 .id(openToken)
         } else {
             HStack(spacing: 8) {
-                if briefingVM.stage != .idle { ProgressView().scaleEffect(0.7) }
+                if briefingVM.stage == .aggregating || briefingVM.stage == .generating {
+                    ProgressView().scaleEffect(0.7)
+                }
+                let isError: Bool = { if case .error = briefingVM.stage { return true }; return false }()
                 Text(briefingVM.stage == .idle
                      ? "Tryck ↺ för att generera dagens briefing."
                      : briefingVM.stage.label)
-                    .font(.body).foregroundStyle(.secondary)
+                    .font(.body)
+                    .foregroundStyle(isError ? AnyShapeStyle(.red) : AnyShapeStyle(Color.secondary))
             }
         }
     }
