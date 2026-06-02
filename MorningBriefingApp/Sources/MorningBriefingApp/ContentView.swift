@@ -343,6 +343,7 @@ struct ContentView: View {
 
                         ForEach(chatVM.messages) { msg in
                             chatBubble(msg)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
 
                         if chatVM.isLoading {

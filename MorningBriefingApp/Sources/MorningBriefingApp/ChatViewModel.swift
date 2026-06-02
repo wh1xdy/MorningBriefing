@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 private let home       = FileManager.default.homeDirectoryForCurrentUser
 private let pythonPath = home.appendingPathComponent("Developer/MorningBriefing/.venv/bin/python").path
@@ -40,7 +41,9 @@ final class ChatViewModel: ObservableObject {
         let historyJSON = (try? JSONSerialization.data(withJSONObject: historyPayload))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
 
-        messages.append(ChatMessage(role: .user, text: question))
+        withAnimation(.spring(duration: 0.3, bounce: 0.1)) {
+            messages.append(ChatMessage(role: .user, text: question))
+        }
         streamingText = ""
         error         = nil
         isLoading     = true
