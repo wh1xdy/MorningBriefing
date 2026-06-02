@@ -57,13 +57,20 @@ final class BriefingViewModel: ObservableObject {
         parseOutputFile()
     }
 
-    /// Re-runs the full pipeline if latest.json is older than 30 minutes.
+    /// Re-runs the full pipeline only when today's data is missing.
+    /// If latest.json contains today's elpris date we leave it alone — avoids
+    /// triggering a heavy pipeline (and showing an error) just because the file
+    /// was written >30 min ago while the user is offline.
     func refreshIfStale() {
-        guard
-            let attrs    = try? FileManager.default.attributesOfItem(atPath: outputURL.path),
-            let modified = attrs[.modificationDate] as? Date,
-            Date().timeIntervalSince(modified) > 1800
-        else { return }
+        // If we already have in-memory data for today, nothing to do.
+        if let dateStr = result?.plugins.elpris?.data?.date {
+            let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+            if let d = fmt.date(from: dateStr), Calendar.current.isDateInToday(d) { return }
+        }
+        // Fall back to file mtime: only refresh if the file is from a previous day.
+        if let attrs    = try? FileManager.default.attributesOfItem(atPath: outputURL.path),
+           let modified = attrs[.modificationDate] as? Date,
+           Calendar.current.isDateInToday(modified) { return }
         triggerBriefing()
     }
 

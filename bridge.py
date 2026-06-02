@@ -70,12 +70,21 @@ def run():
     return result
 
 
+def _friendly_error(tb: str) -> str:
+    low = tb.lower()
+    if any(k in low for k in ("connectionerror", "timeout", "network", "socket", "gaierror", "ssl")):
+        return "Nätverksfel – kontrollera anslutningen."
+    if "modulenotfounderror" in low or "importerror" in low:
+        return "Saknar Python-beroende – kör: pip install -r requirements.txt"
+    return "Uppdatering misslyckades."
+
+
 if __name__ == "__main__":
     try:
         result = run()
         print(result["briefing"])
     except Exception:
         err = traceback.format_exc()
-        _write_status("error", err)
+        _write_status("error", _friendly_error(err))
         print(f"[bridge error]\n{err}", file=sys.stderr)
         sys.exit(1)

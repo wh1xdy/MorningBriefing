@@ -15,6 +15,7 @@ extension BriefingResult {
             elpris: PluginEnvelope(
                 summary: "SE3 snittpris: 90.23 öre/kWh",
                 data: ElprisData(
+                    date: "2026-05-22",
                     prices: [
                         HourPrice(hour: 0,  priceOreKwh: 97.13),
                         HourPrice(hour: 1,  priceOreKwh: 95.15),

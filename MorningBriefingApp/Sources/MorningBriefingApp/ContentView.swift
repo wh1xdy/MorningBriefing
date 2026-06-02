@@ -72,15 +72,24 @@ struct ContentView: View {
             Text("MorningBriefing")
                 .font(.system(.subheadline, weight: .semibold))
             Spacer()
-            if let avg = briefingVM.result?.plugins.elpris?.data?.avgPrice {
-                Text(String(format: "%.0f öre", avg))
-                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            // Status cluster: price + loading/error indicator
+            HStack(spacing: 4) {
+                if let avg = briefingVM.result?.plugins.elpris?.data?.avgPrice {
+                    Text(String(format: "%.0f öre", avg))
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Group {
+                    if briefingVM.stage == .aggregating || briefingVM.stage == .generating {
+                        ProgressView().scaleEffect(0.55).frame(width: 12, height: 12)
+                    } else if case .error = briefingVM.stage {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .imageScale(.small)
+                            .foregroundStyle(.red.opacity(0.8))
+                            .help(briefingVM.stage.label)
+                    }
+                }
             }
-            if briefingVM.stage != .ready && briefingVM.stage != .idle {
-                Text(briefingVM.stage.label)
-                    .font(.caption).foregroundStyle(.secondary)
-                    .transition(.opacity)
-            }
+            .animation(.easeInOut(duration: 0.2), value: briefingVM.stage == .ready)
             Button {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     mode = mode == .briefing ? .chat : .briefing

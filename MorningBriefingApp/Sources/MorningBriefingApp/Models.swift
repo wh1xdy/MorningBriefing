@@ -12,11 +12,13 @@ struct HourPrice: Identifiable, Codable {
 }
 
 struct ElprisData: Codable {
+    let date: String?
     let prices: [HourPrice]
     let tomorrowPrices: [HourPrice]?
     let avgPrice, minPrice, maxPrice: Double
 
     enum CodingKeys: String, CodingKey {
+        case date
         case prices
         case tomorrowPrices = "tomorrow_prices"
         case avgPrice = "avg_price"
