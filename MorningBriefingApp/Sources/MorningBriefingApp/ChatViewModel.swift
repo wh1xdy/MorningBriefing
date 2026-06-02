@@ -41,7 +41,7 @@ final class ChatViewModel: ObservableObject {
         let historyJSON = (try? JSONSerialization.data(withJSONObject: historyPayload))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
 
-        withAnimation(.spring(duration: 0.3, bounce: 0.1)) {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.72)) {
             messages.append(ChatMessage(role: .user, text: question))
         }
         streamingText = ""

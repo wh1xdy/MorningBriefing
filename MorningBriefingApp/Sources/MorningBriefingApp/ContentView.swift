@@ -12,6 +12,18 @@ private extension View {
     }
 }
 
+// MARK: – iMessage-style bubble insertion modifier
+
+private struct BubbleInsert: ViewModifier {
+    let visible: Bool
+    func body(content: Content) -> some View {
+        content
+            .opacity(visible ? 1 : 0)
+            .scaleEffect(visible ? 1 : 0.92, anchor: .bottom)
+            .offset(y: visible ? 0 : 14)
+    }
+}
+
 // MARK: – Liquid glass card helper
 
 private extension View {
@@ -343,7 +355,13 @@ struct ContentView: View {
 
                         ForEach(chatVM.messages) { msg in
                             chatBubble(msg)
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                                .transition(.asymmetric(
+                                    insertion: .modifier(
+                                        active:   BubbleInsert(visible: false),
+                                        identity: BubbleInsert(visible: true)
+                                    ),
+                                    removal: .opacity
+                                ))
                         }
 
                         if chatVM.isLoading {
