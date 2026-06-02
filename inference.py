@@ -61,16 +61,24 @@ def build_user_prompt(payload: dict, language: str = "sv") -> str:
         )
 
     umms = reaktor.get("active_umms") or []
+    upcoming = reaktor.get("upcoming_umms") or []
     if umms:
         for u in umms:
             end = (u.get("event_end") or ("unknown date" if not sv else "okänt datum"))[:10]
             facts.append(
-                f"Nuclear UMM: {u['plant']} ({u['zone']}) has {u.get('unavailable_mw','?')} MW unavailable until {end}."
+                f"Nuclear UMM (active): {u['plant']} ({u['zone']}) has {u.get('unavailable_mw','?')} MW unavailable until {end}."
                 if not sv else
-                f"Nukleär UMM: {u['plant']} ({u['zone']}) har {u.get('unavailable_mw','?')} MW otillgängliga t.o.m. {end}."
+                f"Nukleär UMM (aktiv): {u['plant']} ({u['zone']}) har {u.get('unavailable_mw','?')} MW otillgängliga t.o.m. {end}."
             )
-    else:
-        facts.append("No active nuclear UMMs right now." if not sv else "Inga aktiva nukleära UMM just nu.")
+    if upcoming:
+        up_names = ", ".join(u["plant"] for u in upcoming)
+        facts.append(
+            f"Nuclear UMM (planned): {up_names}."
+            if not sv else
+            f"Nukleär UMM (planerad): {up_names}."
+        )
+    if not umms and not upcoming:
+        facts.append("No nuclear UMMs right now." if not sv else "Inga nukleära UMM just nu.")
 
     wind = vader.get("daily_avg_wind_ms")
     if wind is not None:

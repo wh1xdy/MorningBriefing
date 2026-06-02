@@ -49,11 +49,13 @@ def _template_briefing(plugins: dict) -> str:
         plants = ", ".join(r.get("plants", []))
         mw = r.get("total_unavail_mw", 0)
         parts.append(
-            f"Aktiv nukleär UMM: {plants} ({mw} MW otillgängliga) — "
-            f"kan höja spotpriset."
+            f"Aktiv nukleär UMM: {plants} ({mw} MW otillgängliga) — kan höja spotpriset."
         )
+    elif r.get("upcoming_count", 0) > 0:
+        up = ", ".join(r.get("upcoming_plants", []))
+        parts.append(f"Planerad nukleär UMM: {up}.")
     else:
-        parts.append("Inga aktiva nukleära UMM just nu.")
+        parts.append("Inga nukleära UMM just nu.")
 
     wind = (vader.get("daily_avg_wind_ms") or 0)
     if wind >= 6:
