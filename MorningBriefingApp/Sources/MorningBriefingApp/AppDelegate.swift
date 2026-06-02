@@ -79,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             NotificationCenter.default.post(name: .mbPopoverWillOpen, object: nil)
             MainActor.assumeIsolated { briefingVM.refreshIfStale() }
+            NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: btn.bounds, of: btn, preferredEdge: .minY)
         }
     }

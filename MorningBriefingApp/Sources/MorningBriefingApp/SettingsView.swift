@@ -42,7 +42,7 @@ struct SettingsView: View {
 
             // Quit row — full-width button so hit-testing is reliable
             Button {
-                NSApplication.shared.terminate(nil)
+                exit(0)
             } label: {
                 HStack(spacing: 12) {
                     ZStack {
