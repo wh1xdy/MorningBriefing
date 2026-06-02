@@ -15,12 +15,14 @@ from plugins.elpris        import fetch_prices
 from plugins.reaktorstatus import fetch_umm
 from plugins.core          import analyze
 from plugins.vader         import fetch_weather
+from plugins.vattenfall    import fetch_forsmark
 
 PLUGINS = {
     "elpris":        fetch_prices,
     "reaktorstatus": fetch_umm,
     "core":          analyze,
     "vader":         fetch_weather,
+    "vattenfall":    fetch_forsmark,
 }
 
 

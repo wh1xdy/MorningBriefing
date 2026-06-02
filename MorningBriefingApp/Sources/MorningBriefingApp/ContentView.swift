@@ -201,6 +201,12 @@ struct ContentView: View {
                         reaktorCard(r)
                             .fadeFromTop(appeared, delay: 0.18)
                     }
+
+                    if let vf = briefingVM.result?.plugins.vattenfall?.data,
+                       !vf.offline.isEmpty {
+                        forsmarkCard(vf)
+                            .fadeFromTop(appeared, delay: 0.22)
+                    }
                 }
             }
             .padding(14)
@@ -335,6 +341,40 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 14)
                 .strokeBorder(color.opacity(0.35), lineWidth: 0.8)
         )
+    }
+
+    // MARK: – Forsmark production card
+
+    private func forsmarkCard(_ vf: VattenfallData) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "atom")
+                .foregroundStyle(.red)
+                .font(.title3)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Forsmark – nere för underhåll")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    ForEach(vf.blocks, id: \.block) { b in
+                        VStack(spacing: 1) {
+                            Text(b.block)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(b.offline ? .red : .secondary)
+                            Text(b.offline ? "offline" : "\(b.productionMw) MW")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(b.offline ? .red : .primary)
+                        }
+                    }
+                }
+                Text("Källa: Vattenfall realtidsdata")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.red.opacity(0.3), lineWidth: 0.8))
     }
 
     // MARK: – Chat pane

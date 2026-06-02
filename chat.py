@@ -97,6 +97,20 @@ def load_context() -> str:
                 up = ", ".join(rd["upcoming_plants"])
                 parts.append(f"Nukleär UMM planerad ({upcoming_count} st): {up}")
 
+        # Vattenfall live production
+        vf = (data.get("plugins") or {}).get("vattenfall") or {}
+        vd = vf.get("data") or {}
+        if vd.get("blocks"):
+            block_rows = "  ".join(
+                f"{b['block']}:{'offline' if b['offline'] else str(b['production_mw'])+'MW'}"
+                for b in vd["blocks"]
+            )
+            offline = vd.get("offline") or []
+            if offline:
+                parts.append(f"Forsmark realtidsproduktion (Vattenfall): {block_rows}. Offline: {', '.join(offline)}")
+            else:
+                parts.append(f"Forsmark realtidsproduktion (Vattenfall): {block_rows}. Alla block i drift.")
+
         briefing = data.get("briefing", "")
         if briefing:
             parts.append(f"Dagens sammanfattning: {briefing}")

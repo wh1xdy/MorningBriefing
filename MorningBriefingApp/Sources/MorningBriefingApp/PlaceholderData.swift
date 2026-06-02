@@ -67,6 +67,18 @@ extension BriefingResult {
                     windNote: "Svag vind – begränsad vindproduktion.",
                     location: "Stockholm"
                 )
+            ),
+            vattenfall: PluginEnvelope(
+                summary: "Forsmark: 1 block offline (F2). Totalt 2083 / 3413 MW.",
+                data: VattenfallData(
+                    plant: "Forsmark",
+                    blocks: [
+                        VattenfallBlock(block: "F1", productionMw: 1082, capacityMw: 1121, percent: 96.7, offline: false),
+                        VattenfallBlock(block: "F2", productionMw: 0,    capacityMw: 1120, percent: 0.0,  offline: true),
+                        VattenfallBlock(block: "F3", productionMw: 1001, capacityMw: 1172, percent: 83.4, offline: false),
+                    ],
+                    offline: ["F2"], totalMw: 2083, totalCapMw: 3413
+                )
             )
         )
     )

@@ -76,6 +76,35 @@ struct VaderData: Codable {
     }
 }
 
+struct VattenfallBlock: Codable {
+    let block: String
+    let productionMw: Int
+    let capacityMw: Int
+    let percent: Double
+    let offline: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case block
+        case productionMw = "production_mw"
+        case capacityMw   = "capacity_mw"
+        case percent, offline
+    }
+}
+
+struct VattenfallData: Codable {
+    let plant: String
+    let blocks: [VattenfallBlock]
+    let offline: [String]
+    let totalMw: Int
+    let totalCapMw: Int
+
+    enum CodingKeys: String, CodingKey {
+        case plant, blocks, offline
+        case totalMw    = "total_mw"
+        case totalCapMw = "total_cap_mw"
+    }
+}
+
 // Wrapper structs matching the plugin JSON envelope
 struct PluginEnvelope<T: Codable>: Codable {
     let summary: String
@@ -87,6 +116,7 @@ struct BriefingPlugins: Codable {
     let core:          PluginEnvelope<CoreData>?
     let reaktorstatus: PluginEnvelope<ReaktorData>?
     let vader:         PluginEnvelope<VaderData>?
+    let vattenfall:    PluginEnvelope<VattenfallData>?
 }
 
 struct BriefingResult: Codable {
