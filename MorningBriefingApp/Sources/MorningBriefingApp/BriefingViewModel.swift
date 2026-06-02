@@ -96,8 +96,9 @@ final class BriefingViewModel: ObservableObject {
 
     private func launchBridge() {
         let task = Process()
+        let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "sv"
         task.executableURL = URL(fileURLWithPath: pythonPath)
-        task.arguments     = [bridgePath]
+        task.arguments     = [bridgePath, "--language", lang]
         task.terminationHandler = { [weak self] p in
             DispatchQueue.main.async {
                 guard let self else { return }

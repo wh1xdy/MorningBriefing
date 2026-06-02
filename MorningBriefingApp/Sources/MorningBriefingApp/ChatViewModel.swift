@@ -49,7 +49,8 @@ final class ChatViewModel: ObservableObject {
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         task.executableURL  = URL(fileURLWithPath: pythonPath)
-        task.arguments      = [chatPath, "--question", question, "--history", historyJSON]
+        let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "sv"
+        task.arguments      = [chatPath, "--question", question, "--history", historyJSON, "--language", lang]
         task.standardOutput = stdoutPipe
         task.standardError  = stderrPipe
 

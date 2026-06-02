@@ -11,70 +11,88 @@ from pathlib import Path
 MODEL_ID   = "mlx-community/Mistral-7B-Instruct-v0.3-4bit"
 MAX_TOKENS = 280
 
-# Mistral 7B follows late-in-prompt instructions most reliably.
-# Put the RULES block last so they're fresh in context at generation time.
-_RULES = (
-    "REGLER: Skriv 3–5 meningar sammanhängande prosa på svenska. "
-    "Inga punktlistor, inga rubriker, ingen inledningsfras. "
-    "Börja direkt med ett faktapåstående. "
-    "Avsluta sista meningen med: 'Kör tunga jobb HH:00–HH:00 (XX öre/kWh).'"
-)
+_RULES = {
+    "sv": (
+        "REGLER: Skriv 3–5 meningar sammanhängande prosa på svenska. "
+        "Inga punktlistor, inga rubriker, ingen inledningsfras. "
+        "Börja direkt med ett faktapåstående. "
+        "Avsluta sista meningen med: 'Kör tunga jobb HH:00–HH:00 (XX öre/kWh).'"
+    ),
+    "en": (
+        "RULES: Write 3–5 sentences of continuous prose in English. "
+        "No bullet lists, no headings, no preamble. "
+        "Start directly with a factual statement. "
+        "End the last sentence with: 'Run heavy loads HH:00–HH:00 (XX öre/kWh).'"
+    ),
+}
 
 
-def build_user_prompt(payload: dict) -> str:
+def build_user_prompt(payload: dict, language: str = "sv") -> str:
     plugins   = payload.get("plugins", {})
     elpris    = plugins.get("elpris",        {}).get("data", {})
     core      = plugins.get("core",          {}).get("data", {})
     reaktor   = plugins.get("reaktorstatus", {}).get("data", {})
     vader     = plugins.get("vader",         {}).get("data", {})
 
+    sv = language == "sv"
     facts = []
 
-    # Price facts
-    avg = elpris.get("avg_price")
-    mn  = elpris.get("min_price")
-    mx  = elpris.get("max_price")
-    date = elpris.get("date", "idag")
+    avg  = elpris.get("avg_price")
+    mn   = elpris.get("min_price")
+    mx   = elpris.get("max_price")
+    date = elpris.get("date", "today" if not sv else "idag")
     if avg is not None:
-        facts.append(f"SE3 spotpris {date}: snitt {avg:.1f}, min {mn:.1f}, max {mx:.1f} öre/kWh.")
+        facts.append(
+            f"SE3 spot price {date}: avg {avg:.1f}, min {mn:.1f}, max {mx:.1f} öre/kWh."
+            if not sv else
+            f"SE3 spotpris {date}: snitt {avg:.1f}, min {mn:.1f}, max {mx:.1f} öre/kWh."
+        )
 
-    # Cheapest window
     if core.get("cheapest_window_start") is not None:
-        s = core["cheapest_window_start"]
-        e = core["cheapest_window_end"]
+        s  = core["cheapest_window_start"]
+        e  = core["cheapest_window_end"]
         ca = core["cheapest_window_avg"]
         da = core.get("daily_avg", avg or 0)
         pct = round((da - ca) / max(da, 0.01) * 100, 1)
-        facts.append(f"Billigaste 4h-fönster: {s:02d}:00–{e:02d}:00 ({ca:.1f} öre/kWh, {pct}% under dagsnitt).")
+        facts.append(
+            f"Cheapest 4h window: {s:02d}:00–{e:02d}:00 ({ca:.1f} öre/kWh, {pct}% below daily avg)."
+            if not sv else
+            f"Billigaste 4h-fönster: {s:02d}:00–{e:02d}:00 ({ca:.1f} öre/kWh, {pct}% under dagsnitt)."
+        )
 
-    # Nuclear UMMs
     umms = reaktor.get("active_umms") or []
     if umms:
         for u in umms:
-            end = (u.get("event_end") or "okänt datum")[:10]
+            end = (u.get("event_end") or ("unknown date" if not sv else "okänt datum"))[:10]
             facts.append(
-                f"Nukleär UMM: {u['plant']} ({u['zone']}) har {u.get('unavailable_mw', '?')} MW "
-                f"otillgängliga t.o.m. {end}."
+                f"Nuclear UMM: {u['plant']} ({u['zone']}) has {u.get('unavailable_mw','?')} MW unavailable until {end}."
+                if not sv else
+                f"Nukleär UMM: {u['plant']} ({u['zone']}) har {u.get('unavailable_mw','?')} MW otillgängliga t.o.m. {end}."
             )
     else:
-        facts.append("Inga aktiva nukleära UMM just nu.")
+        facts.append("No active nuclear UMMs right now." if not sv else "Inga aktiva nukleära UMM just nu.")
 
-    # Wind/weather context
     wind = vader.get("daily_avg_wind_ms")
     if wind is not None:
-        facts.append(f"Vindsnitt Stockholm idag: {wind} m/s. {vader.get('wind_note', '')}")
+        note = vader.get("wind_note", "")
+        facts.append(
+            f"Daily avg wind Stockholm: {wind} m/s. {note}"
+            if not sv else
+            f"Vindsnitt Stockholm idag: {wind} m/s. {note}"
+        )
 
+    label   = "Energy data:" if not sv else "Energidata:"
     context = "\n".join(facts)
-    return f"Energidata:\n{context}\n\n{_RULES}"
+    rules   = _RULES.get(language, _RULES["sv"])
+    return f"{label}\n{context}\n\n{rules}"
 
 
-def generate_briefing(payload: dict) -> str:
+def generate_briefing(payload: dict, language: str = "sv") -> str:
     from mlx_lm import load, generate
 
     model, tokenizer = load(MODEL_ID)
 
-    # Mistral v0.3 has no system role — put all instructions in the user turn.
-    messages = [{"role": "user", "content": build_user_prompt(payload)}]
+    messages = [{"role": "user", "content": build_user_prompt(payload, language=language)}]
 
     prompt = tokenizer.apply_chat_template(
         messages,

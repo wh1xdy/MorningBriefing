@@ -6,6 +6,7 @@ Swift calls this as an NSTask on wake; reads the result from OUTPUT_FILE.
 Output file: ~/.morningbriefing/latest.json
 Swift watches for mtime change on that file to know when the briefing is ready.
 """
+import argparse
 import json
 import sys
 import time
@@ -44,7 +45,7 @@ def _append_log(payload: dict, briefing: str):
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def run():
+def run(language: str = "sv"):
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     _write_status("aggregating")
@@ -53,7 +54,7 @@ def run():
 
     _write_status("generating_briefing")
     from inference import generate_briefing
-    briefing = generate_briefing(payload)
+    briefing = generate_briefing(payload, language=language)
 
     result = {
         "briefing":     briefing,
@@ -80,8 +81,11 @@ def _friendly_error(tb: str) -> str:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--language", default="sv", choices=["sv", "en"])
+    args = parser.parse_args()
     try:
-        result = run()
+        result = run(language=args.language)
         print(result["briefing"])
     except Exception:
         err = traceback.format_exc()

@@ -15,16 +15,33 @@ CONTEXT_FILE = Path.home() / ".morningbriefing/latest.json"
 MODEL_ID     = "mlx-community/Mistral-7B-Instruct-v0.3-4bit"
 MAX_TOKENS   = 120
 
-SYSTEM = (
-    "Du är en energianalytiker. Svara på svenska. "
-    "ABSOLUTA REGLER:\n"
-    "1. Använd BARA siffror och fakta som finns i energidatan nedan. Hitta inte på något.\n"
-    "2. Svar på frågor om spotpris, timpriser, kärnkraft-UMM och billigaste laddningstid är OK.\n"
-    "3. Frågor om elavtal, rörligt pris, fast pris, elnätsavgift, slutkundspris, "
-    "elbolag, kontrakt, skatter eller annat utanför spotpris/UMM/timpriser: "
-    "svara exakt 'Den informationen finns inte i tillgänglig data.' — ingenting mer.\n"
-    "4. MAX 2 meningar. Aldrig mer. Ingen inledning, inga parenteser."
-)
+_SYSTEM = {
+    "sv": (
+        "Du är en energianalytiker. Svara på svenska. "
+        "ABSOLUTA REGLER:\n"
+        "1. Använd BARA siffror och fakta som finns i energidatan nedan. Hitta inte på något.\n"
+        "2. Svar på frågor om spotpris, timpriser, kärnkraft-UMM och billigaste laddningstid är OK.\n"
+        "3. Frågor om elavtal, rörligt pris, fast pris, elnätsavgift, slutkundspris, "
+        "elbolag, kontrakt, skatter eller annat utanför spotpris/UMM/timpriser: "
+        "svara exakt 'Den informationen finns inte i tillgänglig data.' — ingenting mer.\n"
+        "4. MAX 2 meningar. Aldrig mer. Ingen inledning, inga parenteser."
+    ),
+    "en": (
+        "You are an energy market analyst. Reply in English. "
+        "ABSOLUTE RULES:\n"
+        "1. Use ONLY numbers and facts present in the energy data below. Do not invent anything.\n"
+        "2. Questions about spot price, hourly prices, nuclear UMMs and cheapest charging window are OK.\n"
+        "3. Questions about electricity contracts, variable/fixed tariffs, grid fees, end-customer "
+        "billing, energy companies, taxes, or anything outside spot/UMM/hourly prices: "
+        "reply exactly 'That information is not available in the current data.' — nothing more.\n"
+        "4. MAX 2 sentences. Never more. No preamble, no parentheses."
+    ),
+}
+
+_OUT_OF_SCOPE_EN = [
+    "variable tariff", "fixed tariff", "electricity contract", "grid fee",
+    "network fee", "end customer", "household", "apartment", "subscription",
+]
 
 
 def load_context() -> str:
@@ -100,11 +117,13 @@ def is_out_of_scope(question: str) -> bool:
     return any(kw in q for kw in _OUT_OF_SCOPE)
 
 
-def build_messages(history: list, question: str, context: str) -> list:
+def build_messages(history: list, question: str, context: str, lang: str = "sv") -> list:
     """Build Mistral-compatible alternating user/assistant messages."""
+    system = _SYSTEM.get(lang, _SYSTEM["sv"])
+    data_label = "Current energy data:" if lang == "en" else "Aktuell energidata:"
     context_prefix = (
-        f"{SYSTEM}\n\n"
-        f"Aktuell energidata:\n{context or 'Ingen data tillgänglig.'}\n\n"
+        f"{system}\n\n"
+        f"{data_label}\n{context or ('No data available.' if lang == 'en' else 'Ingen data tillgänglig.')}\n\n"
     )
 
     messages = []
@@ -127,11 +146,16 @@ def build_messages(history: list, question: str, context: str) -> list:
     return messages
 
 
+def is_out_of_scope_en(question: str) -> bool:
+    q = question.lower()
+    return any(kw in q for kw in _OUT_OF_SCOPE_EN)
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--question", required=True)
-    parser.add_argument("--history",  default="[]",
-                        help="JSON array of {role, content} prior turns")
+    parser.add_argument("--question",  required=True)
+    parser.add_argument("--history",   default="[]")
+    parser.add_argument("--language",  default="sv", choices=["sv", "en"])
     args = parser.parse_args()
 
     try:
@@ -139,18 +163,22 @@ def main():
     except Exception:
         history = []
 
-    # Keep at most the last 3 complete turns (6 messages) to avoid context overflow
-    # that triggers repetition loops in the model.
     if len(history) > 6:
         history = history[-6:]
 
-    if is_out_of_scope(args.question):
+    blocked_sv = args.language == "sv" and is_out_of_scope(args.question)
+    blocked_en = args.language == "en" and is_out_of_scope_en(args.question)
+    if blocked_sv:
         sys.stdout.write("Den informationen finns inte i tillgänglig data.")
+        sys.stdout.flush()
+        return
+    if blocked_en:
+        sys.stdout.write("That information is not available in the current data.")
         sys.stdout.flush()
         return
 
     context  = load_context()
-    messages = build_messages(history, args.question, context)
+    messages = build_messages(history, args.question, context, lang=args.language)
 
     from mlx_lm import load, stream_generate
     from mlx_lm.sample_utils import make_sampler, make_logits_processors
