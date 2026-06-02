@@ -40,19 +40,26 @@ struct SettingsView: View {
 
             Divider().padding(.leading, 44)
 
-            // Quit row
-            settingsRow(
-                icon: "power",
-                iconColor: .red,
-                title: language == "sv" ? "Avsluta MorningBriefing" : "Quit MorningBriefing"
-            ) {
-                Button(language == "sv" ? "Avsluta" : "Quit") {
-                    NSApp.terminate(nil)
+            // Quit row — full-width button so hit-testing is reliable
+            Button {
+                NSApplication.shared.terminate(nil)
+            } label: {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6).fill(Color.red)
+                            .frame(width: 28, height: 28)
+                        Image(systemName: "power")
+                            .imageScale(.small)
+                            .foregroundStyle(.white)
+                    }
+                    Text(language == "sv" ? "Avsluta MorningBriefing" : "Quit MorningBriefing")
+                        .font(.body).foregroundStyle(.primary)
+                    Spacer()
                 }
-                .foregroundStyle(.red)
-                .buttonStyle(.plain)
-                .font(.callout)
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
             Spacer()
         }
