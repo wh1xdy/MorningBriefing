@@ -66,7 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover = NSPopover()
         popover.contentSize = NSSize(width: 340, height: 520)
         popover.behavior    = .transient
-        popover.animates    = true
+        popover.animates    = false   // our content spring replaces this; native scale + spring = flicker
         popover.contentViewController = NSHostingController(
             rootView: ContentView(briefingVM: briefingVM, chatVM: chatVM)
         )
