@@ -76,6 +76,17 @@ def fetch_umm() -> dict:
                     except ValueError:
                         pass
 
+                start_str = period.get("eventStart")
+                is_active = False
+                if start_str:
+                    try:
+                        start = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+                        is_active = start <= now
+                    except ValueError:
+                        is_active = True   # unknown start → assume active
+                else:
+                    is_active = True
+
                 nuclear.append({
                     "id":              msg.get("messageId"),
                     "plant":           unit.get("name", "Unknown"),
@@ -90,29 +101,46 @@ def fetch_umm() -> dict:
                     "remarks":         msg.get("remarks", "").strip(),
                     "publisher":       msg.get("publisherName", ""),
                     "status":          msg.get("eventStatus"),
+                    "is_active":       is_active,
                 })
 
-    plant_names = sorted({u["plant"] for u in nuclear})
-    total_unavail = sum(u["unavailable_mw"] or 0 for u in nuclear)
+    active   = [u for u in nuclear if u["is_active"]]
+    upcoming = [u for u in nuclear if not u["is_active"]]
 
-    if nuclear:
+    active_plants   = sorted({u["plant"] for u in active})
+    upcoming_plants = sorted({u["plant"] for u in upcoming})
+    all_plants      = sorted({u["plant"] for u in nuclear})
+    total_unavail   = sum(u["unavailable_mw"] or 0 for u in active)
+
+    if active:
         summary = (
-            f"{len(nuclear)} aktiva nukleära UMM i Norden. "
-            f"Berörda: {', '.join(plant_names)}. "
+            f"{len(active)} aktiva nukleära UMM i Norden. "
+            f"Berörda: {', '.join(active_plants)}. "
             f"Totalt unavailable: {total_unavail} MW."
         )
+        if upcoming:
+            summary += f" Planerade ({len(upcoming)}): {', '.join(upcoming_plants)}."
+    elif upcoming:
+        summary = (
+            f"Inga pågående nukleära UMM. "
+            f"Planerade ({len(upcoming)}): {', '.join(upcoming_plants)}."
+        )
     else:
-        summary = "Inga aktiva nukleära UMM-meddelanden i Norden just nu."
+        summary = "Inga nukleära UMM i Norden just nu."
 
     return {
         "plugin":  "reaktorstatus",
         "summary": summary,
         "data": {
-            "active_umms":    nuclear,
-            "count":          len(nuclear),
-            "plants":         plant_names,
+            "active_umms":      active,
+            "upcoming_umms":    upcoming,
+            "count":            len(active),
+            "upcoming_count":   len(upcoming),
+            "plants":           active_plants,
+            "upcoming_plants":  upcoming_plants,
+            "all_plants":       all_plants,
             "total_unavail_mw": total_unavail,
-            "fetched_at":     now.isoformat(),
+            "fetched_at":       now.isoformat(),
         },
     }
 

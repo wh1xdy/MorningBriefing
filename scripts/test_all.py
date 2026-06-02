@@ -289,8 +289,11 @@ def _():
         assert "cheapest_window_avg"   in cd
     if "reaktorstatus" in plugins:
         rd = plugins["reaktorstatus"].get("data", {})
-        assert "count"  in rd
-        assert "plants" in rd
+        assert "count"           in rd, "reaktorstatus missing count"
+        assert "plants"          in rd, "reaktorstatus missing plants"
+        assert "upcoming_count"  in rd, "reaktorstatus missing upcoming_count (new field)"
+        assert "upcoming_plants" in rd, "reaktorstatus missing upcoming_plants (new field)"
+        assert "total_unavail_mw" in rd
 
 
 @test("chat: load_context includes prices and UMM data")

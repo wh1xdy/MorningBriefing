@@ -64,15 +64,21 @@ def load_context() -> str:
 
         reaktor = (data.get("plugins") or {}).get("reaktorstatus") or {}
         rd = reaktor.get("data") or {}
-        if rd.get("count", 0) == 0:
-            parts.append("Nukleär UMM: inga aktiva driftstörningar.")
-        elif rd.get("plants"):
-            mw = rd.get("total_unavail_mw")
-            plants = ", ".join(rd["plants"])
-            parts.append(
-                f"Nukleär UMM ({rd['count']} st): {plants}"
-                + (f" — totalt {mw} MW otillgängliga" if mw else "")
-            )
+        active_count   = rd.get("count", 0)
+        upcoming_count = rd.get("upcoming_count", 0)
+        if active_count == 0 and upcoming_count == 0:
+            parts.append("Nukleär UMM: inga pågående eller planerade driftstörningar.")
+        else:
+            if active_count > 0 and rd.get("plants"):
+                mw = rd.get("total_unavail_mw")
+                plants = ", ".join(rd["plants"])
+                parts.append(
+                    f"Nukleär UMM aktiv ({active_count} st): {plants}"
+                    + (f" — {mw} MW otillgängliga" if mw else "")
+                )
+            if upcoming_count > 0 and rd.get("upcoming_plants"):
+                up = ", ".join(rd["upcoming_plants"])
+                parts.append(f"Nukleär UMM planerad ({upcoming_count} st): {up}")
 
         briefing = data.get("briefing", "")
         if briefing:

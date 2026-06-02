@@ -43,10 +43,14 @@ struct ReaktorData: Codable {
     let count: Int
     let plants: [String]
     let totalUnavailMw: Int?
+    let upcomingCount: Int?
+    let upcomingPlants: [String]?
 
     enum CodingKeys: String, CodingKey {
         case count, plants
-        case totalUnavailMw = "total_unavail_mw"
+        case totalUnavailMw  = "total_unavail_mw"
+        case upcomingCount   = "upcoming_count"
+        case upcomingPlants  = "upcoming_plants"
     }
 }
 

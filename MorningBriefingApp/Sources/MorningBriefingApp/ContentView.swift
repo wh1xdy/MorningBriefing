@@ -122,7 +122,8 @@ struct ContentView: View {
                     recommendationCard(core)
                         .fadeFromTop(appeared, delay: 0.14)
                 }
-                if let r = briefingVM.result?.plugins.reaktorstatus?.data, r.count > 0 {
+                if let r = briefingVM.result?.plugins.reaktorstatus?.data,
+                   r.count > 0 || (r.upcomingCount ?? 0) > 0 {
                     reaktorCard(r)
                         .fadeFromTop(appeared, delay: 0.18)
                 }
@@ -214,21 +215,32 @@ struct ContentView: View {
     // MARK: – Reaktor card
 
     private func reaktorCard(_ r: ReaktorData) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange).font(.title3).padding(.top, 1)
+        let hasActive   = r.count > 0
+        let hasUpcoming = (r.upcomingCount ?? 0) > 0
+        let color: Color = hasActive ? .orange : .yellow
+
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: hasActive ? "exclamationmark.triangle.fill" : "calendar.badge.exclamationmark")
+                .foregroundStyle(color).font(.title3).padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
-                Text("Nukleär UMM aktiv")
+                Text(hasActive ? "Nukleär UMM pågår" : "Nukleär UMM planerad")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                Text(r.plants.joined(separator: ", ")).font(.callout.weight(.medium))
-                if let mw = r.totalUnavailMw {
-                    Text("\(mw) MW otillgängliga").font(.caption).foregroundStyle(.secondary)
+                if hasActive {
+                    Text(r.plants.joined(separator: ", ")).font(.callout.weight(.medium))
+                    if let mw = r.totalUnavailMw, mw > 0 {
+                        Text("\(mw) MW otillgängliga").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if hasUpcoming, let up = r.upcomingPlants {
+                    Text((hasActive ? "Planerad: " : "") + up.joined(separator: ", "))
+                        .font(.caption)
+                        .foregroundStyle(hasActive ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary.opacity(0.7)))
                 }
             }
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.orange.opacity(0.2)))
+        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(color.opacity(0.2)))
     }
 
     // MARK: – Chat pane
