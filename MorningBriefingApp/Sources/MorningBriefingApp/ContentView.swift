@@ -12,23 +12,13 @@ private extension View {
     }
 }
 
-// MARK: – Glass card helper
+// MARK: – Liquid glass card helper
 
 private extension View {
+    // Uses native macOS 26 Liquid Glass. The rect shape must be passed explicitly
+    // because DefaultGlassEffectShape (capsule) is wrong for rectangular cards.
     func glassCard(cornerRadius: CGFloat = 14) -> some View {
-        self
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [.white.opacity(0.35), .white.opacity(0.08)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 0.6
-                    )
-            )
-            .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 4)
+        self.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
     }
 }
 
@@ -49,9 +39,9 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            GradientBackground()
+            // No custom background — NSPopover on macOS 26 draws native Liquid Glass
+            // (including the correctly-tinted arrow) when SwiftUI content is transparent.
 
-            // Settings slides in over the main content
             if showSettings {
                 SettingsView(isShowing: $showSettings)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -61,6 +51,7 @@ struct ContentView: View {
             }
         }
         .frame(width: 340, height: 520)
+        .background(.clear)
         .animation(.spring(duration: 0.35, bounce: 0.12), value: showSettings)
         .onAppear { animateIn() }
         .onReceive(NotificationCenter.default.publisher(for: .mbPopoverWillOpen)) { _ in
@@ -102,7 +93,7 @@ struct ContentView: View {
             // Status cluster
             HStack(spacing: 4) {
                 if let avg = briefingVM.result?.plugins.elpris?.data?.avgPrice {
-                    Text(String(format: "%.0f öre", avg))
+                    Text(String(format: "snitt %.0f öre", avg))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
@@ -174,27 +165,29 @@ struct ContentView: View {
 
     private var briefingPane: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                briefingTextSection
-                    .fadeFromTop(appeared, delay: 0.05)
+            // GlassEffectContainer groups all glass cards so they sample
+            // the scene once and morph correctly when near each other.
+            GlassEffectContainer {
+                VStack(alignment: .leading, spacing: 14) {
+                    briefingTextSection
+                        .fadeFromTop(appeared, delay: 0.05)
 
-                if let elpris = briefingVM.result?.plugins.elpris?.data, !elpris.prices.isEmpty {
-                    chartCard(elpris)
-                        .fadeFromTop(appeared, delay: 0.10)
+                    if let elpris = briefingVM.result?.plugins.elpris?.data, !elpris.prices.isEmpty {
+                        chartCard(elpris)
+                            .fadeFromTop(appeared, delay: 0.10)
+                    }
+
+                    if let core = briefingVM.result?.plugins.core?.data {
+                        recommendationCard(core)
+                            .fadeFromTop(appeared, delay: 0.14)
+                    }
+
+                    if let r = briefingVM.result?.plugins.reaktorstatus?.data,
+                       r.count > 0 || (r.upcomingCount ?? 0) > 0 {
+                        reaktorCard(r)
+                            .fadeFromTop(appeared, delay: 0.18)
+                    }
                 }
-
-                if let core = briefingVM.result?.plugins.core?.data {
-                    recommendationCard(core)
-                        .fadeFromTop(appeared, delay: 0.14)
-                }
-
-                if let r = briefingVM.result?.plugins.reaktorstatus?.data,
-                   r.count > 0 || (r.upcomingCount ?? 0) > 0 {
-                    reaktorCard(r)
-                        .fadeFromTop(appeared, delay: 0.18)
-                }
-
-                Spacer(minLength: 12)
             }
             .padding(14)
         }

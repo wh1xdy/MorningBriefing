@@ -157,9 +157,9 @@ final class BriefingViewModel: ObservableObject {
         guard let prices = result?.plugins.elpris?.data?.prices else { return }
         let hour = Calendar.current.component(.hour, from: Date())
         if let hp = prices.first(where: { $0.hour == hour }) {
-            currentPriceLabel = String(format: "%.0f", hp.priceOreKwh)
+            currentPriceLabel = String(format: "%.0f öre", hp.priceOreKwh)
         } else if let avg = result?.plugins.elpris?.data?.avgPrice {
-            currentPriceLabel = String(format: "%.0f", avg)
+            currentPriceLabel = String(format: "%.0f öre", avg)
         }
     }
 
