@@ -484,12 +484,15 @@ struct ContentView: View {
 
     @ViewBuilder
     private func assistantBubble(_ text: String) -> some View {
-        Text(text)
-            .font(.body)
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassCard(cornerRadius: 16)
-            .padding(.horizontal, 8)
+        HStack(alignment: .top) {
+            Text(text)
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .glassCard(cornerRadius: 16)
+            Spacer(minLength: 40)
+        }
+        .padding(.horizontal, 8)
     }
 
     private func submitChat() {
