@@ -51,7 +51,10 @@ struct ContentView: View {
             }
         }
         .frame(width: 340, height: 520)
-        .background(.clear)
+        // ultraThinMaterial matches the native NSPopover arrow material (fixes
+        // arrow colour mismatch) AND keeps the view hit-testable (fixes transient
+        // outside-click dismiss that .background(.clear) breaks).
+        .background(.ultraThinMaterial)
         .animation(.spring(duration: 0.35, bounce: 0.12), value: showSettings)
         .onAppear { animateIn() }
         .onReceive(NotificationCenter.default.publisher(for: .mbPopoverWillOpen)) { _ in
@@ -80,11 +83,12 @@ struct ContentView: View {
     // MARK: – Header
 
     private var header: some View {
-        HStack(spacing: 10) {
-            // App icon + title
+        HStack(alignment: .center, spacing: 10) {
+            // App icon + title — frame matches button frames so baseline aligns
             Image(systemName: "bolt.fill")
                 .foregroundStyle(.yellow)
                 .imageScale(.small)
+                .frame(width: 16, height: 16)
             Text("MorningBriefing")
                 .font(.system(.subheadline, weight: .semibold))
 
@@ -190,6 +194,7 @@ struct ContentView: View {
                 }
             }
             .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .scrollIndicators(.hidden)
     }
