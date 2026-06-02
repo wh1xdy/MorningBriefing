@@ -1,13 +1,34 @@
 import SwiftUI
+import Charts
 
-// MARK: – Stagger helper
+// MARK: – Fade-from-top helper
 
 private extension View {
     func fadeFromTop(_ visible: Bool, delay: Double = 0) -> some View {
         self
             .opacity(visible ? 1 : 0)
-            .offset(y: visible ? 0 : -10)
-            .animation(.easeInOut(duration: 0.2).delay(delay), value: visible)
+            .offset(y: visible ? 0 : -8)
+            .animation(.spring(duration: 0.35, bounce: 0.1).delay(delay), value: visible)
+    }
+}
+
+// MARK: – Glass card helper
+
+private extension View {
+    func glassCard(cornerRadius: CGFloat = 14) -> some View {
+        self
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [.white.opacity(0.35), .white.opacity(0.08)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.6
+                    )
+            )
+            .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 4)
     }
 }
 
@@ -29,54 +50,61 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             GradientBackground()
-            VStack(spacing: 0) {
-                header
-                    .fadeFromTop(appeared, delay: 0.00)
-                Divider().opacity(0.3)
-                    .fadeFromTop(appeared, delay: 0.02)
-                Group {
-                    if mode == .briefing {
-                        briefingPane.transition(.opacity)
-                    } else {
-                        chatPane.transition(.opacity)
-                    }
-                }
-                .animation(.easeInOut(duration: 0.25), value: mode)
+
+            // Settings slides in over the main content
+            if showSettings {
+                SettingsView(isShowing: $showSettings)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else {
+                mainContent
+                    .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
         .frame(width: 340, height: 520)
+        .animation(.spring(duration: 0.35, bounce: 0.12), value: showSettings)
         .onAppear { animateIn() }
         .onReceive(NotificationCenter.default.publisher(for: .mbPopoverWillOpen)) { _ in
+            if showSettings { showSettings = false }
             animateIn()
         }
         .onChange(of: mode) { _, newMode in
             if newMode == .chat { chatFocused = true }
         }
-        .sheet(isPresented: $showSettings) { SettingsView() }
+    }
+
+    private var mainContent: some View {
+        VStack(spacing: 0) {
+            header.fadeFromTop(appeared, delay: 0.00)
+            Divider().opacity(0.2).fadeFromTop(appeared, delay: 0.02)
+            contentArea
+        }
     }
 
     private func animateIn() {
-        openToken = UUID()   // force AnimatedBriefingText to recreate
+        openToken = UUID()
         appeared  = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
-            appeared = true
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { appeared = true }
     }
 
     // MARK: – Header
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
+            // App icon + title
             Image(systemName: "bolt.fill")
-                .foregroundStyle(.yellow).imageScale(.small)
+                .foregroundStyle(.yellow)
+                .imageScale(.small)
             Text("MorningBriefing")
                 .font(.system(.subheadline, weight: .semibold))
+
             Spacer()
-            // Status cluster: price + loading/error indicator
+
+            // Status cluster
             HStack(spacing: 4) {
                 if let avg = briefingVM.result?.plugins.elpris?.data?.avgPrice {
                     Text(String(format: "%.0f öre", avg))
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
                 Group {
                     if briefingVM.stage == .aggregating || briefingVM.stage == .generating {
@@ -90,61 +118,91 @@ struct ContentView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: briefingVM.stage == .ready)
-            Button {
-                withAnimation(.easeInOut(duration: 0.25)) {
+
+            // Controls
+            headerButton(icon: mode == .briefing ? "bubble.left" : "doc.text",
+                         help: mode == .briefing ? "Öppna chat" : "Visa briefing") {
+                withAnimation(.spring(duration: 0.3, bounce: 0.15)) {
                     mode = mode == .briefing ? .chat : .briefing
                 }
-            } label: {
-                Image(systemName: mode == .briefing ? "bubble.left" : "doc.text")
-                    .imageScale(.small)
             }
-            .buttonStyle(.plain)
-            .help(mode == .briefing ? "Öppna chat" : "Visa briefing")
-
-            Button { briefingVM.triggerBriefing() } label: {
-                Image(systemName: "arrow.clockwise").imageScale(.small)
+            headerButton(icon: "arrow.clockwise", help: "Uppdatera briefing") {
+                briefingVM.triggerBriefing()
             }
-            .buttonStyle(.plain).help("Uppdatera briefing")
-
-            Button { showSettings = true } label: {
-                Image(systemName: "gearshape").imageScale(.small)
+            headerButton(icon: "gearshape", help: "Inställningar") {
+                withAnimation(.spring(duration: 0.35, bounce: 0.12)) { showSettings = true }
             }
-            .buttonStyle(.plain).help("Inställningar")
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private func headerButton(icon: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .imageScale(.small)
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    // MARK: – Content area (briefing / chat)
+
+    @ViewBuilder
+    private var contentArea: some View {
+        ZStack {
+            if mode == .briefing {
+                briefingPane
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .leading).combined(with: .opacity),
+                        removal:   .move(edge: .leading).combined(with: .opacity)
+                    ))
+            } else {
+                chatPane
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal:   .move(edge: .trailing).combined(with: .opacity)
+                    ))
+            }
+        }
+        .animation(.spring(duration: 0.3, bounce: 0.1), value: mode)
     }
 
     // MARK: – Briefing pane
 
     private var briefingPane: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                briefingText
+            VStack(alignment: .leading, spacing: 14) {
+                briefingTextSection
                     .fadeFromTop(appeared, delay: 0.05)
 
-                if let elpris = briefingVM.result?.plugins.elpris?.data,
-                   !elpris.prices.isEmpty {
+                if let elpris = briefingVM.result?.plugins.elpris?.data, !elpris.prices.isEmpty {
                     chartCard(elpris)
                         .fadeFromTop(appeared, delay: 0.10)
                 }
+
                 if let core = briefingVM.result?.plugins.core?.data {
                     recommendationCard(core)
                         .fadeFromTop(appeared, delay: 0.14)
                 }
+
                 if let r = briefingVM.result?.plugins.reaktorstatus?.data,
                    r.count > 0 || (r.upcomingCount ?? 0) > 0 {
                     reaktorCard(r)
                         .fadeFromTop(appeared, delay: 0.18)
                 }
-                Spacer(minLength: 16)
+
+                Spacer(minLength: 12)
             }
-            .padding(16)
+            .padding(14)
         }
         .scrollIndicators(.hidden)
     }
 
     @ViewBuilder
-    private var briefingText: some View {
+    private var briefingTextSection: some View {
         if let text = briefingVM.result?.briefing {
             AnimatedBriefingText(text: text)
                 .id(openToken)
@@ -173,19 +231,22 @@ struct ContentView: View {
 
         return VStack(alignment: .leading, spacing: 8) {
             Label("SE3 Spot", systemImage: "bolt.fill")
-                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
             PriceChartView(
                 prices: combined,
                 currentHour: Calendar.current.component(.hour, from: .now)
             )
-            HStack(spacing: 8) {
+
+            HStack(spacing: 6) {
                 statPill("Snitt", String(format: "%.1f öre", elpris.avgPrice))
                 statPill("Min",   String(format: "%.1f öre", elpris.minPrice))
                 statPill("Max",   String(format: "%.1f öre", elpris.maxPrice))
             }
         }
         .padding(12)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+        .glassCard()
     }
 
     private func statPill(_ label: String, _ value: String) -> some View {
@@ -194,7 +255,7 @@ struct ContentView: View {
             Text(value).font(.caption.monospacedDigit())
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
     }
 
     // MARK: – Recommendation card
@@ -202,10 +263,13 @@ struct ContentView: View {
     private func recommendationCard(_ core: CoreData) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "clock.badge.checkmark.fill")
-                .foregroundStyle(.green).font(.title3).padding(.top, 1)
+                .foregroundStyle(.green)
+                .font(.title3)
+                .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Kör tunga jobb")
-                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
                 Text(String(format: "%02d:00 – %02d:00",
                             core.cheapestWindowStart, core.cheapestWindowEnd))
                     .font(.title3.monospacedDigit().weight(.semibold))
@@ -213,43 +277,56 @@ struct ContentView: View {
                             core.cheapestWindowAvg,
                             Int(((core.dailyAvg - core.cheapestWindowAvg)
                                  / max(core.dailyAvg, 0.01)) * 100)))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
-        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.green.opacity(0.08),  in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.green.opacity(0.2)))
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(.green.opacity(0.3), lineWidth: 0.8)
+        )
     }
 
     // MARK: – Reaktor card
 
     private func reaktorCard(_ r: ReaktorData) -> some View {
-        let hasActive   = r.count > 0
-        let hasUpcoming = (r.upcomingCount ?? 0) > 0
+        let hasActive = r.count > 0
         let color: Color = hasActive ? .orange : .yellow
 
         return HStack(alignment: .top, spacing: 12) {
             Image(systemName: hasActive ? "exclamationmark.triangle.fill" : "calendar.badge.exclamationmark")
-                .foregroundStyle(color).font(.title3).padding(.top, 1)
+                .foregroundStyle(color)
+                .font(.title3)
+                .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
                 Text(hasActive ? "Nukleär UMM pågår" : "Nukleär UMM planerad")
-                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
                 if hasActive {
-                    Text(r.plants.joined(separator: ", ")).font(.callout.weight(.medium))
+                    Text(r.plants.joined(separator: ", "))
+                        .font(.callout.weight(.medium))
                     if let mw = r.totalUnavailMw, mw > 0 {
-                        Text("\(mw) MW otillgängliga").font(.caption).foregroundStyle(.secondary)
+                        Text("\(mw) MW otillgängliga")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                if hasUpcoming, let up = r.upcomingPlants {
+                if let up = r.upcomingPlants, !up.isEmpty {
                     Text((hasActive ? "Planerad: " : "") + up.joined(separator: ", "))
                         .font(.caption)
                         .foregroundStyle(hasActive ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary.opacity(0.7)))
                 }
             }
         }
-        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(color.opacity(0.2)))
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(color.opacity(0.35), lineWidth: 0.8)
+        )
     }
 
     // MARK: – Chat pane
@@ -258,32 +335,18 @@ struct ContentView: View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 10) {
                         if chatVM.messages.isEmpty && !chatVM.isLoading {
                             Text("Ställ en fråga om elmarknaden eller dagens briefing.")
-                                .font(.callout).foregroundStyle(.secondary)
-                                .padding(.horizontal, 12).padding(.vertical, 10)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 14)
+                                .padding(.top, 12)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
 
                         ForEach(chatVM.messages) { msg in
-                            if msg.role == .user {
-                                HStack {
-                                    Spacer(minLength: 40)
-                                    Text(msg.text)
-                                        .font(.body)
-                                        .padding(.horizontal, 12).padding(.vertical, 8)
-                                        .background(Color.accentColor.opacity(0.2),
-                                                    in: RoundedRectangle(cornerRadius: 12))
-                                }
-                            } else {
-                                Text(msg.text)
-                                    .font(.body)
-                                    .padding(.horizontal, 12).padding(.vertical, 8)
-                                    .background(.quaternary.opacity(0.5),
-                                                in: RoundedRectangle(cornerRadius: 12))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
+                            chatBubble(msg)
                         }
 
                         if chatVM.isLoading {
@@ -292,27 +355,21 @@ struct ContentView: View {
                                     ProgressView().scaleEffect(0.65)
                                     Text("Tänker…").font(.callout).foregroundStyle(.secondary)
                                 }
-                                .padding(.horizontal, 12)
+                                .padding(.horizontal, 14)
                             } else {
-                                Text(chatVM.streamingText)
-                                    .font(.body)
-                                    .padding(.horizontal, 12).padding(.vertical, 8)
-                                    .background(.quaternary.opacity(0.5),
-                                                in: RoundedRectangle(cornerRadius: 12))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                assistantBubble(chatVM.streamingText)
                             }
                         } else if let err = chatVM.error {
                             Text(err)
                                 .font(.caption).foregroundStyle(.red)
-                                .padding(.horizontal, 12)
+                                .padding(.horizontal, 14)
                         }
 
                         Color.clear.frame(height: 1).id("bottom")
                     }
-                    .padding(14)
+                    .padding(.vertical, 10)
                 }
                 .scrollIndicators(.hidden)
-                .onAppear { proxy.scrollTo("bottom") }
                 .onChange(of: chatVM.messages.count) { _, _ in
                     withAnimation(.smooth) { proxy.scrollTo("bottom") }
                 }
@@ -324,13 +381,16 @@ struct ContentView: View {
                 }
             }
 
-            Divider().opacity(0.3)
+            Divider().opacity(0.2)
 
+            // Input bar
             HStack(spacing: 8) {
                 TextField("Fråga om elmarknaden…", text: $chatInput)
-                    .font(.body).textFieldStyle(.plain)
+                    .font(.body)
+                    .textFieldStyle(.plain)
                     .focused($chatFocused)
                     .onSubmit { submitChat() }
+
                 Button(action: submitChat) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title3)
@@ -345,6 +405,37 @@ struct ContentView: View {
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
         }
+    }
+
+    @ViewBuilder
+    private func chatBubble(_ msg: ChatMessage) -> some View {
+        if msg.role == .user {
+            HStack {
+                Spacer(minLength: 50)
+                Text(msg.text)
+                    .font(.body)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(Color.accentColor.opacity(0.18), in: RoundedRectangle(cornerRadius: 16))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 0.5)
+                    )
+            }
+            .padding(.horizontal, 14)
+        } else {
+            assistantBubble(msg.text)
+                .padding(.horizontal, 14)
+        }
+    }
+
+    @ViewBuilder
+    private func assistantBubble(_ text: String) -> some View {
+        Text(text)
+            .font(.body)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard(cornerRadius: 16)
+            .padding(.horizontal, 14)
     }
 
     private func submitChat() {
