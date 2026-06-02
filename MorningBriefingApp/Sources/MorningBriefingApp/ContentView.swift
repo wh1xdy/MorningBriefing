@@ -51,10 +51,8 @@ struct ContentView: View {
             }
         }
         .frame(width: 340, height: 520)
-        // ultraThinMaterial matches the native NSPopover arrow material (fixes
-        // arrow colour mismatch) AND keeps the view hit-testable (fixes transient
-        // outside-click dismiss that .background(.clear) breaks).
-        .background(.ultraThinMaterial)
+        .background(.clear)
+        .contentShape(Rectangle())   // keeps the view hit-testable with a clear bg
         .animation(.spring(duration: 0.35, bounce: 0.12), value: showSettings)
         .onAppear { animateIn() }
         .onReceive(NotificationCenter.default.publisher(for: .mbPopoverWillOpen)) { _ in
