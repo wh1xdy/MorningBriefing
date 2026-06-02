@@ -55,6 +55,7 @@ final class BriefingViewModel: ObservableObject {
     func loadCachedIfAvailable() {
         guard FileManager.default.fileExists(atPath: outputURL.path) else { return }
         parseOutputFile()
+        watchOutputFile()   // keep watching so inject_fixture / bridge writes are picked up live
     }
 
     /// Re-runs the full pipeline only when today's data is missing.
