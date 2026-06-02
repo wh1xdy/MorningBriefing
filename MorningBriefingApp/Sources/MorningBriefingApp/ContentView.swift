@@ -79,7 +79,6 @@ struct ContentView: View {
     private var mainContent: some View {
         VStack(spacing: 0) {
             header.fadeFromTop(appeared, delay: 0.00)
-            Divider().opacity(0.2).fadeFromTop(appeared, delay: 0.02)
             contentArea
         }
     }
