@@ -120,20 +120,14 @@ struct PriceChartView: View {
             .chartOverlay { proxy in
                 GeometryReader { geo in
                     Rectangle().fill(.clear).contentShape(Rectangle())
-                        .gesture(
-                            DragGesture(minimumDistance: 0)
-                                .onChanged { v in
-                                    let x = v.location.x - geo[proxy.plotAreaFrame].origin.x
-                                    if let h: Int = proxy.value(atX: x) {
-                                        hoverHour = max(0, min(domainEnd, h))
-                                    }
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let location):
+                                let x = location.x - geo[proxy.plotAreaFrame].origin.x
+                                if let h: Int = proxy.value(atX: x) {
+                                    hoverHour = max(0, min(domainEnd, h))
                                 }
-                                .onEnded { _ in
-                                    withAnimation(.easeOut(duration: 0.2)) { hoverHour = nil }
-                                }
-                        )
-                        .onHover { hovering in
-                            if !hovering {
+                            case .ended:
                                 withAnimation(.easeOut(duration: 0.2)) { hoverHour = nil }
                             }
                         }
