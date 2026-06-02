@@ -426,7 +426,7 @@ struct ContentView: View {
     private func chatBubble(_ msg: ChatMessage) -> some View {
         if msg.role == .user {
             HStack {
-                Spacer(minLength: 50)
+                Spacer(minLength: 40)
                 Text(msg.text)
                     .font(.body)
                     .padding(.horizontal, 12).padding(.vertical, 8)
@@ -436,10 +436,9 @@ struct ContentView: View {
                             .strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 0.5)
                     )
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 8)
         } else {
             assistantBubble(msg.text)
-                .padding(.horizontal, 14)
         }
     }
 
@@ -450,7 +449,7 @@ struct ContentView: View {
             .padding(.horizontal, 12).padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassCard(cornerRadius: 16)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 8)
     }
 
     private func submitChat() {
