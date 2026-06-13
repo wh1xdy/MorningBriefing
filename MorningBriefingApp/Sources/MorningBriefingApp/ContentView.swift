@@ -45,7 +45,9 @@ struct ContentView: View {
     @State private var openToken:    UUID   = UUID()
     @State private var showSettings: Bool   = false
     @State private var chatInput:    String = ""
+    @State private var briefingScrollHeight: CGFloat = 380   // measured from content (#2)
     @FocusState private var chatFocused: Bool
+    @AppStorage("appLanguage") private var language: String = "sv"
 
     enum Mode: Equatable { case briefing, chat }
 
@@ -62,7 +64,7 @@ struct ContentView: View {
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
-        .frame(width: 340, height: 520)
+        .frame(width: 340)   // height is intrinsic — popover follows it (#2)
         .background(.clear)
         .contentShape(Rectangle())   // keeps the view hit-testable with a clear bg
         .animation(.spring(duration: 0.35, bounce: 0.12), value: showSettings)
@@ -177,41 +179,105 @@ struct ContentView: View {
     // MARK: – Briefing pane
 
     private var briefingPane: some View {
-        ScrollView {
-            // GlassEffectContainer groups all glass cards so they sample
-            // the scene once and morph correctly when near each other.
-            GlassEffectContainer {
-                VStack(alignment: .leading, spacing: 14) {
-                    briefingTextSection
-                        .fadeFromTop(appeared, delay: 0.05)
+        VStack(spacing: 0) {
+            ScrollView {
+                // GlassEffectContainer groups all glass cards so they sample
+                // the scene once and morph correctly when near each other.
+                GlassEffectContainer {
+                    VStack(alignment: .leading, spacing: 14) {
+                        briefingTextSection
+                            .fadeFromTop(appeared, delay: 0.05)
 
-                    if let elpris = briefingVM.result?.plugins.elpris?.data, !elpris.prices.isEmpty {
-                        chartCard(elpris)
-                            .fadeFromTop(appeared, delay: 0.10)
-                    }
+                        if let elpris = briefingVM.result?.plugins.elpris?.data, !elpris.prices.isEmpty {
+                            chartCard(elpris)
+                                .fadeFromTop(appeared, delay: 0.10)
+                        }
 
-                    if let core = briefingVM.result?.plugins.core?.data {
-                        recommendationCard(core)
-                            .fadeFromTop(appeared, delay: 0.14)
-                    }
+                        if let core = briefingVM.result?.plugins.core?.data {
+                            recommendationCard(core)
+                                .fadeFromTop(appeared, delay: 0.14)
+                        }
 
-                    if let r = briefingVM.result?.plugins.reaktorstatus?.data,
-                       r.count > 0 || (r.upcomingCount ?? 0) > 0 {
-                        reaktorCard(r)
-                            .fadeFromTop(appeared, delay: 0.18)
-                    }
+                        if let r = briefingVM.result?.plugins.reaktorstatus?.data,
+                           r.count > 0 || (r.upcomingCount ?? 0) > 0 {
+                            reaktorCard(r)
+                                .fadeFromTop(appeared, delay: 0.18)
+                        }
 
-                    if let vf = briefingVM.result?.plugins.vattenfall?.data,
-                       !vf.offline.isEmpty {
-                        forsmarkCard(vf)
-                            .fadeFromTop(appeared, delay: 0.22)
+                        if let vf = briefingVM.result?.plugins.vattenfall?.data,
+                           !vf.offline.isEmpty {
+                            forsmarkCard(vf)
+                                .fadeFromTop(appeared, delay: 0.22)
+                        }
                     }
                 }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .top)
+                // Measure natural content height so the popover shrinks to fit
+                // a short briefing and only scrolls when it's genuinely tall (#2).
+                .background(GeometryReader { g in
+                    Color.clear
+                        .onAppear { setBriefingHeight(g.size.height) }
+                        .onChange(of: g.size.height) { _, h in setBriefingHeight(h) }
+                })
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(height: briefingScrollHeight)
+            .scrollIndicators(.hidden)
+
+            briefingFooter
+                .fadeFromTop(appeared, delay: 0.26)
         }
-        .scrollIndicators(.hidden)
+    }
+
+    private func setBriefingHeight(_ contentHeight: CGFloat) {
+        // Clamp the scroll area: never a dead gap below short content, cap tall
+        // briefings at 460 so the popover stays usable and the rest scrolls.
+        let clamped = min(max(contentHeight, 80), 460)
+        if abs(clamped - briefingScrollHeight) > 0.5 { briefingScrollHeight = clamped }
+    }
+
+    // MARK: – Freshness + sources footer (#1)
+
+    private var briefingFooter: some View {
+        HStack(spacing: 6) {
+            if briefingVM.isOffline {
+                Circle().fill(.orange).frame(width: 6, height: 6)
+                Text(offlineText)
+            } else {
+                Image(systemName: "clock").imageScale(.small)
+                Text(freshnessText)
+            }
+            Spacer()
+            Text("Nord Pool · Open-Meteo · Vattenfall")
+                .lineLimit(1)
+        }
+        .font(.caption2)
+        .foregroundStyle(briefingVM.isOffline ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+    }
+
+    private var freshnessText: String {
+        guard let iso = briefingVM.result?.generatedAt,
+              let clock = Self.clockString(fromISO: iso)
+        else { return language == "sv" ? "Ingen data än" : "No data yet" }
+        return (language == "sv" ? "Uppdaterad " : "Updated ") + clock
+    }
+
+    private var offlineText: String {
+        if let iso = briefingVM.result?.generatedAt, let clock = Self.clockString(fromISO: iso) {
+            return (language == "sv" ? "Offline · data från " : "Offline · data from ") + clock
+        }
+        return "Offline"
+    }
+
+    private static func clockString(fromISO iso: String) -> String? {
+        let parser = ISO8601DateFormatter()
+        guard let date = parser.date(from: iso) else { return nil }
+        let out = DateFormatter()
+        out.dateFormat = "HH:mm"
+        return out.string(from: date)
     }
 
     @ViewBuilder
@@ -220,16 +286,29 @@ struct ContentView: View {
             AnimatedBriefingText(text: text)
                 .id(openToken)
         } else {
-            HStack(spacing: 8) {
-                if briefingVM.stage == .aggregating || briefingVM.stage == .generating {
-                    ProgressView().scaleEffect(0.7)
+            let isError: Bool = { if case .error = briefingVM.stage { return true }; return false }()
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    if briefingVM.stage == .aggregating || briefingVM.stage == .generating {
+                        ProgressView().scaleEffect(0.7)
+                    }
+                    Text(briefingVM.stage == .idle
+                         ? (language == "sv" ? "Tryck ↺ för att generera dagens briefing."
+                                             : "Press ↺ to generate today's briefing.")
+                         : briefingVM.stage.label)
+                        .font(.body)
+                        .foregroundStyle(isError ? AnyShapeStyle(.red) : AnyShapeStyle(Color.secondary))
                 }
-                let isError: Bool = { if case .error = briefingVM.stage { return true }; return false }()
-                Text(briefingVM.stage == .idle
-                     ? "Tryck ↺ för att generera dagens briefing."
-                     : briefingVM.stage.label)
-                    .font(.body)
-                    .foregroundStyle(isError ? AnyShapeStyle(.red) : AnyShapeStyle(Color.secondary))
+                if isError {
+                    Button {
+                        briefingVM.triggerBriefing()
+                    } label: {
+                        Label(language == "sv" ? "Försök igen" : "Try again",
+                              systemImage: "arrow.clockwise")
+                            .font(.callout.weight(.medium))
+                    }
+                    .buttonStyle(.borderless)
+                }
             }
         }
     }
@@ -268,39 +347,54 @@ struct ContentView: View {
             Text(value).font(.caption.monospacedDigit())
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        // Adaptive light fill reads cleaner on Liquid Glass than .quaternary (#5)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
     }
 
-    // MARK: – Recommendation card
+    // MARK: – Reusable info card (#7)
 
-    private func recommendationCard(_ core: CoreData) -> some View {
+    // Shared layout for the recommendation / reaktor / forsmark cards: leading
+    // tinted icon + content column on Liquid Glass with a matching hairline.
+    @ViewBuilder
+    private func infoCard<Content: View>(
+        icon: String,
+        tint: Color,
+        strokeOpacity: Double = 0.32,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "clock.badge.checkmark.fill")
-                .foregroundStyle(.green)
+            Image(systemName: icon)
+                .foregroundStyle(tint)
                 .font(.title3)
                 .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Kör tunga jobb")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(String(format: "%02d:00 – %02d:00",
-                            core.cheapestWindowStart, core.cheapestWindowEnd))
-                    .font(.title3.monospacedDigit().weight(.semibold))
-                Text(String(format: "%.1f öre/kWh  (%d%% under dagsnitt)",
-                            core.cheapestWindowAvg,
-                            Int(((core.dailyAvg - core.cheapestWindowAvg)
-                                 / max(core.dailyAvg, 0.01)) * 100)))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            VStack(alignment: .leading, spacing: 3) { content() }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
         .overlay(
             RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(.green.opacity(0.3), lineWidth: 0.8)
+                .strokeBorder(tint.opacity(strokeOpacity), lineWidth: 0.8)
         )
+    }
+
+    // MARK: – Recommendation card
+
+    private func recommendationCard(_ core: CoreData) -> some View {
+        infoCard(icon: "clock.badge.checkmark.fill", tint: .green, strokeOpacity: 0.30) {
+            Text("Kör tunga jobb")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(String(format: "%02d:00 – %02d:00",
+                        core.cheapestWindowStart, core.cheapestWindowEnd))
+                .font(.title3.monospacedDigit().weight(.semibold))
+            Text(String(format: "%.1f öre/kWh  (%d%% under dagsnitt)",
+                        core.cheapestWindowAvg,
+                        Int(((core.dailyAvg - core.cheapestWindowAvg)
+                             / max(core.dailyAvg, 0.01)) * 100)))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     // MARK: – Reaktor card
@@ -308,72 +402,51 @@ struct ContentView: View {
     private func reaktorCard(_ r: ReaktorData) -> some View {
         let hasActive = r.count > 0
         let color: Color = hasActive ? .orange : .yellow
-
-        return HStack(alignment: .top, spacing: 12) {
-            Image(systemName: hasActive ? "exclamationmark.triangle.fill" : "calendar.badge.exclamationmark")
-                .foregroundStyle(color)
-                .font(.title3)
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(hasActive ? "Nukleär UMM pågår" : "Nukleär UMM planerad")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                if hasActive {
-                    Text(r.plants.joined(separator: ", "))
-                        .font(.callout.weight(.medium))
-                    if let mw = r.totalUnavailMw, mw > 0 {
-                        Text("\(mw) MW otillgängliga")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                if let up = r.upcomingPlants, !up.isEmpty {
-                    Text((hasActive ? "Planerad: " : "") + up.joined(separator: ", "))
-                        .font(.caption)
-                        .foregroundStyle(hasActive ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary.opacity(0.7)))
+        return infoCard(
+            icon: hasActive ? "exclamationmark.triangle.fill" : "calendar.badge.exclamationmark",
+            tint: color, strokeOpacity: 0.35
+        ) {
+            Text(hasActive ? "Nukleär UMM pågår" : "Nukleär UMM planerad")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if hasActive {
+                Text(r.plants.joined(separator: ", "))
+                    .font(.callout.weight(.medium))
+                if let mw = r.totalUnavailMw, mw > 0 {
+                    Text("\(mw) MW otillgängliga")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
+            if let up = r.upcomingPlants, !up.isEmpty {
+                Text((hasActive ? "Planerad: " : "") + up.joined(separator: ", "))
+                    .font(.caption)
+                    .foregroundStyle(hasActive ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary.opacity(0.7)))
+            }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(color.opacity(0.35), lineWidth: 0.8)
-        )
     }
 
     // MARK: – Forsmark production card
 
     private func forsmarkCard(_ vf: VattenfallData) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "atom")
-                .foregroundStyle(.red)
-                .font(.title3)
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Forsmark – nere för underhåll")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                HStack(spacing: 10) {
-                    ForEach(vf.blocks, id: \.block) { b in
-                        VStack(spacing: 1) {
-                            Text(b.block)
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(b.offline ? .red : .secondary)
-                            Text(b.offline ? "offline" : "\(b.productionMw) MW")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(b.offline ? .red : .primary)
-                        }
+        infoCard(icon: "atom", tint: .red, strokeOpacity: 0.30) {
+            Text("Forsmark – nere för underhåll")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                ForEach(vf.blocks, id: \.block) { b in
+                    VStack(spacing: 1) {
+                        Text(b.block)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(b.offline ? .red : .secondary)
+                        Text(b.offline ? "offline" : "\(b.productionMw) MW")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(b.offline ? .red : .primary)
                     }
                 }
-                Text("Källa: Vattenfall realtidsdata")
-                    .font(.caption2).foregroundStyle(.tertiary)
             }
+            Text("Källa: Vattenfall realtidsdata")
+                .font(.caption2).foregroundStyle(.tertiary)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.red.opacity(0.3), lineWidth: 0.8))
     }
 
     // MARK: – Chat pane
@@ -423,6 +496,7 @@ struct ContentView: View {
                     }
                     .padding(.vertical, 10)
                 }
+                .frame(height: 440)   // fixed: chat is a conversation, not content-sized (#2)
                 .scrollIndicators(.hidden)
                 .onChange(of: chatVM.messages.count) { _, _ in
                     withAnimation(.smooth) { proxy.scrollTo("bottom") }

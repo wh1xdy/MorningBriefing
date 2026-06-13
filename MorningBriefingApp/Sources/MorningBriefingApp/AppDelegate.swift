@@ -64,12 +64,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func buildPopover() {
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 340, height: 520)
+        popover.contentSize = NSSize(width: 340, height: 520)   // initial; overridden by content
         popover.behavior    = .transient
         popover.animates    = false   // our content spring replaces this; native scale + spring = flicker
-        popover.contentViewController = NSHostingController(
+        let host = NSHostingController(
             rootView: ContentView(briefingVM: briefingVM, chatVM: chatVM)
         )
+        // Let the popover follow SwiftUI's intrinsic height so a short briefing
+        // doesn't leave dead space at the bottom (width stays pinned at 340).
+        host.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = host
     }
 
     @objc private func statusItemClicked() {

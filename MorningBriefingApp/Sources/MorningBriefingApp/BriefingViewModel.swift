@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Network
 import UserNotifications
 
 private let home            = FileManager.default.homeDirectoryForCurrentUser
@@ -30,10 +31,19 @@ final class BriefingViewModel: ObservableObject {
     @Published var stage:  BriefingStage = .idle
 
     @Published var currentPriceLabel: String?
+    @Published var isOffline: Bool = false
 
     private var fileSource:   DispatchSourceFileSystemObject?
     private var statusTimer:  Timer?
     private var minuteTimer:  Timer?
+    private let pathMonitor = NWPathMonitor()
+
+    init() {
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor in self?.isOffline = path.status != .satisfied }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "mb.network.monitor"))
+    }
 
     // MARK: – Public
 
