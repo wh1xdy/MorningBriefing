@@ -13,11 +13,20 @@ Nordic nuclear plants: Forsmark 1-3 (SE3), Ringhals 1-4 (SE3),
 Oskarshamn 1-3 (SE3), Olkiluoto 1-3 (FI), Loviisa 1-2 (FI).
 """
 import json
+import re
 import requests
 from datetime import datetime, timezone
 
 UMM_URL      = "https://ummapi.nordpoolgroup.com/messages"
 NORDIC_ZONES = frozenset({"SE1", "SE2", "SE3", "SE4", "FI"})
+
+
+def _normalize_plant(name: str) -> str:
+    """Nord Pool returns unit names inconsistently ('Forsmark Block3',
+    'Forsmark block 3'). Canonicalize so dedup + display collapse to one."""
+    s = re.sub(r"\s+", " ", (name or "Unknown").strip())
+    s = re.sub(r"(?i)\bblock\s*", "Block ", s)   # 'block3'/'Block3' -> 'Block 3'
+    return re.sub(r"\s+", " ", s).strip()
 FUEL_NUCLEAR = 14
 MSG_PRODUCTION = 1
 
@@ -89,7 +98,7 @@ def fetch_umm() -> dict:
 
                 nuclear.append({
                     "id":              msg.get("messageId"),
-                    "plant":           unit.get("name", "Unknown"),
+                    "plant":           _normalize_plant(unit.get("name", "Unknown")),
                     "zone":            zone,
                     "available_mw":    period.get("availableCapacity"),
                     "unavailable_mw":  period.get("unavailableCapacity"),
@@ -114,16 +123,16 @@ def fetch_umm() -> dict:
 
     if active:
         summary = (
-            f"{len(active)} aktiva nukleära UMM i Norden. "
+            f"{len(active_plants)} aktiva nukleära UMM i Norden. "
             f"Berörda: {', '.join(active_plants)}. "
             f"Totalt unavailable: {total_unavail} MW."
         )
-        if upcoming:
-            summary += f" Planerade ({len(upcoming)}): {', '.join(upcoming_plants)}."
-    elif upcoming:
+        if upcoming_plants:
+            summary += f" Planerade ({len(upcoming_plants)}): {', '.join(upcoming_plants)}."
+    elif upcoming_plants:
         summary = (
             f"Inga pågående nukleära UMM. "
-            f"Planerade ({len(upcoming)}): {', '.join(upcoming_plants)}."
+            f"Planerade ({len(upcoming_plants)}): {', '.join(upcoming_plants)}."
         )
     else:
         summary = "Inga nukleära UMM i Norden just nu."
@@ -134,8 +143,8 @@ def fetch_umm() -> dict:
         "data": {
             "active_umms":      active,
             "upcoming_umms":    upcoming,
-            "count":            len(active),
-            "upcoming_count":   len(upcoming),
+            "count":            len(active_plants),
+            "upcoming_count":   len(upcoming_plants),
             "plants":           active_plants,
             "upcoming_plants":  upcoming_plants,
             "all_plants":       all_plants,
