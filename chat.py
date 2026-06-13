@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 CONTEXT_FILE = Path.home() / ".morningbriefing/latest.json"
 MODEL_ID     = "mlx-community/Mistral-7B-Instruct-v0.3-4bit"
-MAX_TOKENS   = 120
+MAX_TOKENS   = 220   # 120 truncated 2-sentence Swedish answers mid-word
 
 _SYSTEM = {
     "sv": (

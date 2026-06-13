@@ -504,6 +504,7 @@ struct ContentView: View {
                     .padding(.vertical, 10)
                 }
                 .frame(height: 440)   // fixed: chat is a conversation, not content-sized (#2)
+                .defaultScrollAnchor(.bottom)   // grow from the bottom, iMessage-style — no top void
                 .scrollIndicators(.hidden)
                 .onChange(of: chatVM.messages.count) { _, _ in
                     withAnimation(.smooth) { proxy.scrollTo("bottom") }
