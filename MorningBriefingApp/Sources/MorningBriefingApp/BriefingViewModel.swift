@@ -15,12 +15,13 @@ enum BriefingStage: Equatable {
     case idle, aggregating, generating, ready, error(String)
 
     var label: String {
+        let sv = UserDefaults.standard.string(forKey: "appLanguage") != "en"
         switch self {
-        case .idle:             return "Väntar…"
-        case .aggregating:      return "Hämtar data…"
-        case .generating:       return "Genererar…"
-        case .ready:            return "Klar"
-        case .error(let e):     return "Fel: \(e)"
+        case .idle:             return sv ? "Väntar…"      : "Waiting…"
+        case .aggregating:      return sv ? "Hämtar data…" : "Fetching data…"
+        case .generating:       return sv ? "Genererar…"   : "Generating…"
+        case .ready:            return sv ? "Klar"         : "Ready"
+        case .error(let e):     return (sv ? "Fel: " : "Error: ") + e
         }
     }
 }
@@ -185,12 +186,14 @@ final class BriefingViewModel: ObservableObject {
 
     private func postBriefingReadyNotification(_ r: BriefingResult) {
         guard Bundle.main.bundleIdentifier != nil else { return }
+        let sv = UserDefaults.standard.string(forKey: "appLanguage") != "en"
         let content = UNMutableNotificationContent()
-        content.title = "MorningBriefing klar"
+        content.title = sv ? "MorningBriefing klar" : "MorningBriefing ready"
         if let avg = r.plugins.elpris?.data?.avgPrice {
-            content.body = String(format: "SE3 snitt idag: %.0f öre/kWh", avg)
+            content.body = String(format: sv ? "SE3 snitt idag: %.0f öre/kWh"
+                                              : "SE3 avg today: %.0f öre/kWh", avg)
         } else {
-            content.body = "Dagens briefing är redo."
+            content.body = sv ? "Dagens briefing är redo." : "Today's briefing is ready."
         }
         content.sound = .default
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)

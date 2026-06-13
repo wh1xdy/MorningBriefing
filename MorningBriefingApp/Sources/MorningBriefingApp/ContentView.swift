@@ -51,6 +51,9 @@ struct ContentView: View {
 
     enum Mode: Equatable { case briefing, chat }
 
+    /// Inline sv/en string pick — matches the ternary pattern used in SettingsView.
+    private func tr(_ sv: String, _ en: String) -> String { language == "sv" ? sv : en }
+
     var body: some View {
         ZStack {
             // No custom background — NSPopover on macOS 26 draws native Liquid Glass
@@ -108,7 +111,7 @@ struct ContentView: View {
             // Status cluster
             HStack(spacing: 4) {
                 if let avg = briefingVM.result?.plugins.elpris?.data?.avgPrice {
-                    Text(String(format: "snitt %.0f öre", avg))
+                    Text(String(format: tr("snitt %.0f öre", "avg %.0f öre"), avg))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
@@ -127,15 +130,16 @@ struct ContentView: View {
 
             // Controls
             headerButton(icon: mode == .briefing ? "bubble.left" : "doc.text",
-                         help: mode == .briefing ? "Öppna chat" : "Visa briefing") {
+                         help: mode == .briefing ? tr("Öppna chat", "Open chat")
+                                                 : tr("Visa briefing", "Show briefing")) {
                 withAnimation(.spring(duration: 0.3, bounce: 0.15)) {
                     mode = mode == .briefing ? .chat : .briefing
                 }
             }
-            headerButton(icon: "arrow.clockwise", help: "Uppdatera briefing") {
+            headerButton(icon: "arrow.clockwise", help: tr("Uppdatera briefing", "Refresh briefing")) {
                 briefingVM.triggerBriefing()
             }
-            headerButton(icon: "gearshape", help: "Inställningar") {
+            headerButton(icon: "gearshape", help: tr("Inställningar", "Settings")) {
                 withAnimation(.spring(duration: 0.35, bounce: 0.12)) { showSettings = true }
             }
         }
@@ -332,9 +336,9 @@ struct ContentView: View {
             )
 
             HStack(spacing: 6) {
-                statPill("Snitt", String(format: "%.1f öre", elpris.avgPrice))
-                statPill("Min",   String(format: "%.1f öre", elpris.minPrice))
-                statPill("Max",   String(format: "%.1f öre", elpris.maxPrice))
+                statPill(tr("Snitt", "Avg"), String(format: "%.1f öre", elpris.avgPrice))
+                statPill(tr("Min", "Min"),   String(format: "%.1f öre", elpris.minPrice))
+                statPill(tr("Max", "Max"),   String(format: "%.1f öre", elpris.maxPrice))
             }
         }
         .padding(12)
@@ -382,13 +386,14 @@ struct ContentView: View {
 
     private func recommendationCard(_ core: CoreData) -> some View {
         infoCard(icon: "clock.badge.checkmark.fill", tint: .green, strokeOpacity: 0.30) {
-            Text("Kör tunga jobb")
+            Text(tr("Kör tunga jobb", "Run heavy loads"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             Text(String(format: "%02d:00 – %02d:00",
                         core.cheapestWindowStart, core.cheapestWindowEnd))
                 .font(.title3.monospacedDigit().weight(.semibold))
-            Text(String(format: "%.1f öre/kWh  (%d%% under dagsnitt)",
+            Text(String(format: tr("%.1f öre/kWh  (%d%% under dagsnitt)",
+                                    "%.1f öre/kWh  (%d%% below daily avg)"),
                         core.cheapestWindowAvg,
                         Int(((core.dailyAvg - core.cheapestWindowAvg)
                              / max(core.dailyAvg, 0.01)) * 100)))
@@ -406,19 +411,20 @@ struct ContentView: View {
             icon: hasActive ? "exclamationmark.triangle.fill" : "calendar.badge.exclamationmark",
             tint: color, strokeOpacity: 0.35
         ) {
-            Text(hasActive ? "Nukleär UMM pågår" : "Nukleär UMM planerad")
+            Text(hasActive ? tr("Nukleär UMM pågår", "Nuclear UMM active")
+                           : tr("Nukleär UMM planerad", "Nuclear UMM planned"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             if hasActive {
                 Text(r.plants.joined(separator: ", "))
                     .font(.callout.weight(.medium))
                 if let mw = r.totalUnavailMw, mw > 0 {
-                    Text("\(mw) MW otillgängliga")
+                    Text(tr("\(mw) MW otillgängliga", "\(mw) MW unavailable"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
             if let up = r.upcomingPlants, !up.isEmpty {
-                Text((hasActive ? "Planerad: " : "") + up.joined(separator: ", "))
+                Text((hasActive ? tr("Planerad: ", "Planned: ") : "") + up.joined(separator: ", "))
                     .font(.caption)
                     .foregroundStyle(hasActive ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary.opacity(0.7)))
             }
@@ -429,7 +435,7 @@ struct ContentView: View {
 
     private func forsmarkCard(_ vf: VattenfallData) -> some View {
         infoCard(icon: "atom", tint: .red, strokeOpacity: 0.30) {
-            Text("Forsmark – nere för underhåll")
+            Text(tr("Forsmark – nere för underhåll", "Forsmark – down for maintenance"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             HStack(spacing: 10) {
@@ -444,7 +450,7 @@ struct ContentView: View {
                     }
                 }
             }
-            Text("Källa: Vattenfall realtidsdata")
+            Text(tr("Källa: Vattenfall realtidsdata", "Source: Vattenfall live data"))
                 .font(.caption2).foregroundStyle(.tertiary)
         }
     }
@@ -457,7 +463,8 @@ struct ContentView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
                         if chatVM.messages.isEmpty && !chatVM.isLoading {
-                            Text("Ställ en fråga om elmarknaden eller dagens briefing.")
+                            Text(tr("Ställ en fråga om elmarknaden eller dagens briefing.",
+                                    "Ask about the electricity market or today's briefing."))
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 14)
@@ -480,7 +487,7 @@ struct ContentView: View {
                             if chatVM.streamingText.isEmpty {
                                 HStack(spacing: 6) {
                                     ProgressView().scaleEffect(0.65)
-                                    Text("Tänker…").font(.callout).foregroundStyle(.secondary)
+                                    Text(tr("Tänker…", "Thinking…")).font(.callout).foregroundStyle(.secondary)
                                 }
                                 .padding(.horizontal, 14)
                             } else {
@@ -513,7 +520,7 @@ struct ContentView: View {
 
             // Input bar
             HStack(spacing: 8) {
-                TextField("Fråga om elmarknaden…", text: $chatInput)
+                TextField(tr("Fråga om elmarknaden…", "Ask about the market…"), text: $chatInput)
                     .font(.body)
                     .textFieldStyle(.plain)
                     .focused($chatFocused)

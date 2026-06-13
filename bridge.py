@@ -71,13 +71,16 @@ def run(language: str = "sv"):
     return result
 
 
-def _friendly_error(tb: str) -> str:
+def _friendly_error(tb: str, language: str = "sv") -> str:
     low = tb.lower()
+    sv = language != "en"
     if any(k in low for k in ("connectionerror", "timeout", "network", "socket", "gaierror", "ssl")):
-        return "Nätverksfel – kontrollera anslutningen."
+        return ("Nätverksfel – kontrollera anslutningen." if sv
+                else "Network error – check your connection.")
     if "modulenotfounderror" in low or "importerror" in low:
-        return "Saknar Python-beroende – kör: pip install -r requirements.txt"
-    return "Uppdatering misslyckades."
+        return ("Saknar Python-beroende – kör: pip install -r requirements.txt" if sv
+                else "Missing Python dependency – run: pip install -r requirements.txt")
+    return "Uppdatering misslyckades." if sv else "Update failed."
 
 
 if __name__ == "__main__":
@@ -89,6 +92,6 @@ if __name__ == "__main__":
         print(result["briefing"])
     except Exception:
         err = traceback.format_exc()
-        _write_status("error", _friendly_error(err))
+        _write_status("error", _friendly_error(err, language=args.language))
         print(f"[bridge error]\n{err}", file=sys.stderr)
         sys.exit(1)
