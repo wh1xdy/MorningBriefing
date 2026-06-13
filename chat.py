@@ -13,35 +13,30 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 CONTEXT_FILE = Path.home() / ".morningbriefing/latest.json"
 MODEL_ID     = "mlx-community/Mistral-7B-Instruct-v0.3-4bit"
-MAX_TOKENS   = 220   # 120 truncated 2-sentence Swedish answers mid-word
+MAX_TOKENS   = 340   # room for a natural, complete answer
 
 _SYSTEM = {
     "sv": (
-        "Du är en energianalytiker. Svara på svenska. "
-        "ABSOLUTA REGLER:\n"
-        "1. Använd BARA siffror och fakta som finns i energidatan nedan. Hitta inte på något.\n"
-        "2. Svar på frågor om spotpris, timpriser, kärnkraft-UMM och billigaste laddningstid är OK.\n"
-        "3. Frågor om elavtal, rörligt pris, fast pris, elnätsavgift, slutkundspris, "
-        "elbolag, kontrakt, skatter eller annat utanför spotpris/UMM/timpriser: "
-        "svara exakt 'Den informationen finns inte i tillgänglig data.' — ingenting mer.\n"
-        "4. MAX 2 meningar. Aldrig mer. Ingen inledning, inga parenteser."
+        "Du är en hjälpsam och vänlig assistent i appen MorningBriefing, som handlar om "
+        "den nordiska elmarknaden – SE3-spotpriser, billigaste timmar, kärnkraftstatus och väder. "
+        "Prata naturligt och avslappnat: hälsa tillbaka och förklara gärna vad du kan hjälpa till med. "
+        "Vid hälsningar och småprat, svara kort och vänligt – rabbla INTE upp all data om "
+        "användaren inte frågat efter den. "
+        "Den enda hårda regeln: konkreta fakta – siffror, datum, MW och dina datakällor – får BARA "
+        "komma från energidatan nedan. Hitta aldrig på siffror, datum eller källor. "
+        "Saknar du en uppgift, säg det ärligt istället för att gissa. Svara på svenska."
     ),
     "en": (
-        "You are an energy market analyst. Reply in English. "
-        "ABSOLUTE RULES:\n"
-        "1. Use ONLY numbers and facts present in the energy data below. Do not invent anything.\n"
-        "2. Questions about spot price, hourly prices, nuclear UMMs and cheapest charging window are OK.\n"
-        "3. Questions about electricity contracts, variable/fixed tariffs, grid fees, end-customer "
-        "billing, energy companies, taxes, or anything outside spot/UMM/hourly prices: "
-        "reply exactly 'That information is not available in the current data.' — nothing more.\n"
-        "4. MAX 2 sentences. Never more. No preamble, no parentheses."
+        "You are a helpful, friendly assistant inside the MorningBriefing app, which is about the "
+        "Nordic electricity market – SE3 spot prices, cheapest hours, nuclear status and weather. "
+        "Talk naturally and conversationally: greet back and feel free to explain what you can help with. "
+        "For greetings and small talk, reply briefly and warmly – do NOT dump all the data unless the "
+        "user asked for it. "
+        "The one hard rule: concrete facts – numbers, dates, MW and your data sources – may come ONLY "
+        "from the energy data below. Never invent figures, dates or sources. "
+        "If you lack a detail, say so honestly instead of guessing. Reply in English."
     ),
 }
-
-_OUT_OF_SCOPE_EN = [
-    "variable tariff", "fixed tariff", "electricity contract", "grid fee",
-    "network fee", "end customer", "household", "apartment", "subscription",
-]
 
 
 def load_context() -> str:
@@ -115,20 +110,16 @@ def load_context() -> str:
         if briefing:
             parts.append(f"Dagens sammanfattning: {briefing}")
 
+        # Ground the "what are your sources?" question so the model doesn't invent.
+        parts.append(
+            "Datakällor: Nord Pool Day-Ahead (SE3 spotpriser), Nord Pool UMM "
+            "(kärnkraft-driftstörningar), Open-Meteo (väder i Stockholm), Vattenfall "
+            "(Forsmark realtidsproduktion). Briefingtexten skrivs av en lokal Mistral-7B-modell."
+        )
+
         return "\n".join(parts) if parts else "Ingen energidata tillgänglig."
     except Exception:
         return "Ingen energidata tillgänglig."
-
-
-_OUT_OF_SCOPE = [
-    "rörligt", "fast pris", "fastpris", "elavtal", "elbolag", "elleverantör",
-    "elnätsavgift", "elnät", "kontrakt", "skatt", "moms", "nätavgift",
-    "slutkund", "hushåll", "villa", "lägenhet", "bostad", "abonnemang",
-]
-
-def is_out_of_scope(question: str) -> bool:
-    q = question.lower()
-    return any(kw in q for kw in _OUT_OF_SCOPE)
 
 
 def build_messages(history: list, question: str, context: str, lang: str = "sv") -> list:
@@ -160,11 +151,6 @@ def build_messages(history: list, question: str, context: str, lang: str = "sv")
     return messages
 
 
-def is_out_of_scope_en(question: str) -> bool:
-    q = question.lower()
-    return any(kw in q for kw in _OUT_OF_SCOPE_EN)
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--question",  required=True)
@@ -179,17 +165,6 @@ def main():
 
     if len(history) > 6:
         history = history[-6:]
-
-    blocked_sv = args.language == "sv" and is_out_of_scope(args.question)
-    blocked_en = args.language == "en" and is_out_of_scope_en(args.question)
-    if blocked_sv:
-        sys.stdout.write("Den informationen finns inte i tillgänglig data.")
-        sys.stdout.flush()
-        return
-    if blocked_en:
-        sys.stdout.write("That information is not available in the current data.")
-        sys.stdout.flush()
-        return
 
     context  = load_context()
     messages = build_messages(history, args.question, context, lang=args.language)

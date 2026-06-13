@@ -147,23 +147,18 @@ def _():
 
 # ─── chat.py ─────────────────────────────────────────────────────────────────
 
-@test("chat: is_out_of_scope — contract keywords blocked")
+@test("chat: system prompt is conversational, not a refusal bot")
 def _():
-    from chat import is_out_of_scope
-    blocked = ["rörligt pris", "fastpris", "elavtal", "elnät", "slutkund",
-               "elleverantör", "nätavgift", "skatt", "moms", "abonnemang",
-               "villa", "hushåll", "lägenhet", "bostad", "kontrakt"]
-    for kw in blocked:
-        assert is_out_of_scope(kw), f"'{kw}' should be out-of-scope"
-
-
-@test("chat: is_out_of_scope — energy market questions allowed")
-def _():
-    from chat import is_out_of_scope
-    allowed = ["timpriser", "spotpris", "forsmark", "kärnkraft", "billigaste timme",
-               "reaktor", "UMM", "nordpool", "SE3", "vindkraft", "vattenkraft"]
-    for q in allowed:
-        assert not is_out_of_scope(q), f"'{q}' should be in-scope"
+    from chat import _SYSTEM
+    for lang in ("sv", "en"):
+        sysp = _SYSTEM[lang].lower()
+        # No hard length cap or blanket refusal anymore.
+        assert "max 2" not in sysp, f"{lang}: stale length cap in prompt"
+        assert "information is not available" not in sysp, f"{lang}: stale refusal in prompt"
+        assert "finns inte i tillgänglig data" not in sysp, f"{lang}: stale refusal in prompt"
+        # But the one grounding guardrail must remain.
+        assert ("hitta aldrig på" in sysp) or ("never invent" in sysp), \
+            f"{lang}: missing don't-invent-numbers guardrail"
 
 
 @test("chat: build_messages — no history, context injected once")
