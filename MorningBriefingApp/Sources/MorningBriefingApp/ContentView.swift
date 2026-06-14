@@ -213,6 +213,11 @@ struct ContentView: View {
                             forsmarkCard(vf)
                                 .fadeFromTop(appeared, delay: 0.22)
                         }
+
+                        if let v = briefingVM.result?.plugins.vader?.data {
+                            weatherCard(v)
+                                .fadeFromTop(appeared, delay: 0.24)
+                        }
                     }
                 }
                 .padding(14)
@@ -453,6 +458,47 @@ struct ContentView: View {
             Text(tr("Källa: Vattenfall realtidsdata", "Source: Vattenfall live data"))
                 .font(.caption2).foregroundStyle(.tertiary)
         }
+    }
+
+    // MARK: – Weather card
+
+    private func weatherCard(_ v: VaderData) -> some View {
+        let cloud = v.currentCloudPct ?? 0
+        let icon  = cloud >= 70 ? "cloud.fill" : (cloud >= 30 ? "cloud.sun.fill" : "sun.max.fill")
+        return infoCard(icon: icon, tint: .teal, strokeOpacity: 0.28) {
+            Text(v.location ?? "Stockholm")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 14) {
+                if let t = v.currentTempC {
+                    weatherStat("thermometer.medium", String(format: "%.0f°C", t))
+                }
+                if let w = v.currentWindMs {
+                    weatherStat("wind", String(format: "%.1f m/s", w))
+                }
+                if let c = v.currentCloudPct {
+                    weatherStat("cloud", String(format: "%.0f%%", c))
+                }
+            }
+            if let note = windNote(v) {
+                Text(note).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func weatherStat(_ systemImage: String, _ value: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage).imageScale(.small).foregroundStyle(.secondary)
+            Text(value).font(.callout.monospacedDigit())
+        }
+    }
+
+    // Derived, localized wind note (vader.py's note is Swedish-only).
+    private func windNote(_ v: VaderData) -> String? {
+        guard let w = v.dailyAvgWindMs ?? v.currentWindMs else { return nil }
+        if w >= 6   { return tr("Stark vind – pressar elpriserna.", "Strong wind – pushing prices down.") }
+        if w <= 2.5 { return tr("Vindstilla – mindre vindkraft.",   "Calm – little wind power.") }
+        return tr("Svag till måttlig vind.", "Light to moderate wind.")
     }
 
     // MARK: – Chat pane
