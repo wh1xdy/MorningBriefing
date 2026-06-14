@@ -46,8 +46,10 @@ struct ContentView: View {
     @State private var showSettings: Bool   = false
     @State private var chatInput:    String = ""
     @State private var briefingScrollHeight: CGFloat = 380   // measured from content (#2)
+    @State private var showGreeting: Bool = false
     @FocusState private var chatFocused: Bool
-    @AppStorage("appLanguage") private var language: String = "sv"
+    @AppStorage("appLanguage")   private var language: String = "sv"
+    @AppStorage("lastGreetedDay") private var lastGreetedDay: String = ""   // yyyy-MM-dd
 
     enum Mode: Equatable { case briefing, chat }
 
@@ -59,7 +61,10 @@ struct ContentView: View {
             // No custom background — NSPopover on macOS 26 draws native Liquid Glass
             // (including the correctly-tinted arrow) when SwiftUI content is transparent.
 
-            if showSettings {
+            if showGreeting {
+                greetingView
+                    .transition(.opacity.combined(with: .scale(scale: 1.03, anchor: .center)))
+            } else if showSettings {
                 SettingsView(isShowing: $showSettings)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
@@ -67,18 +72,94 @@ struct ContentView: View {
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
-        .frame(width: 340)   // height is intrinsic — popover follows it (#2)
+        .frame(width: showGreeting ? 380 : 340)   // larger in morning mode; height intrinsic (#2)
         .background(.clear)
         .contentShape(Rectangle())   // keeps the view hit-testable with a clear bg
         .animation(.spring(duration: 0.35, bounce: 0.12), value: showSettings)
+        .animation(.spring(duration: 0.5, bounce: 0.10), value: showGreeting)
         .onAppear { animateIn() }
         .onReceive(NotificationCenter.default.publisher(for: .mbPopoverWillOpen)) { _ in
             if showSettings { showSettings = false }
+            maybeShowGreeting()
             animateIn()
         }
         .onChange(of: mode) { _, newMode in
             if newMode == .chat { chatFocused = true }
         }
+    }
+
+    // MARK: – Morning greeting
+
+    /// Show the greeting on the first popover open before noon each day.
+    private func maybeShowGreeting() {
+        let hour  = Calendar.current.component(.hour, from: Date())
+        let today = Self.dayKey(Date())
+        if hour < 12 && lastGreetedDay != today {
+            lastGreetedDay = today
+            showGreeting = true
+        }
+    }
+
+    private func dismissGreeting() {
+        withAnimation(.spring(duration: 0.5, bounce: 0.10)) { showGreeting = false }
+    }
+
+    private var greetingView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Spacer(minLength: 24)
+
+            Text(tr("God morgon", "Good morning"))
+                .font(.system(size: 34, weight: .semibold, design: .rounded))
+            Text(morningDateString)
+                .font(.title3)
+                .foregroundStyle(.secondary)
+
+            if let core = briefingVM.result?.plugins.core?.data {
+                Divider().opacity(0.25).frame(width: 150).padding(.vertical, 24)
+                Text(tr("Billigast idag", "Cheapest today"))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    Text(String(format: "%02d–%02d", core.cheapestWindowStart, core.cheapestWindowEnd))
+                        .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
+                    Text(String(format: "%.1f öre", core.cheapestWindowAvg))
+                        .font(.title2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            Button(action: dismissGreeting) {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.down")
+                    Text(tr("visa briefing", "show briefing"))
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 16)
+        }
+        .padding(.horizontal, 28)
+        .frame(height: 430)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture { dismissGreeting() }   // tap anywhere to advance
+    }
+
+    private var morningDateString: String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: language == "sv" ? "sv_SE" : "en_US")
+        f.dateFormat = language == "sv" ? "EEEE d MMMM" : "EEEE, MMMM d"
+        return f.string(from: Date())
+    }
+
+    private static func dayKey(_ d: Date) -> String {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: d)
     }
 
     private var mainContent: some View {
