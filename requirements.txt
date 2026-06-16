@@ -1,0 +1,5 @@
+# Data plugins
+requests>=2.31
+
+# Local inference on Apple silicon (pulls in mlx and transformers)
+mlx-lm>=0.18

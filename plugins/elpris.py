@@ -3,8 +3,8 @@
 Fetches SE3 day-ahead spot prices from Nord Pool.
 
 Endpoint status (tested 2026-05-22):
-  PRIMARY:  dataportal-api.nordpoolgroup.com/api/DayAheadPrices — works unauthenticated ✓
-  FALLBACK: data.nordpoolgroup.com/api/DayAheadPrices           — not yet tested
+  PRIMARY:  dataportal-api.nordpoolgroup.com/api/DayAheadPrices - works unauthenticated
+  FALLBACK: data.nordpoolgroup.com/api/DayAheadPrices           - not yet tested
   NOTE: The API returns 15-minute resolution (96 entries/day). _parse_entries
         averages the four quarter-hour blocks into 24 hourly prices.
 """
