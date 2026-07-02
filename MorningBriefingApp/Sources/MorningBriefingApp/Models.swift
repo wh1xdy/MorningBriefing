@@ -109,6 +109,18 @@ struct VattenfallData: Codable {
 struct PluginEnvelope<T: Codable>: Codable {
     let summary: String
     let data: T?
+
+    enum CodingKeys: String, CodingKey { case summary, data }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        summary = (try? c.decode(String.self, forKey: .summary)) ?? ""
+        // A failed plugin serializes `data` as an empty object `{}`, which would
+        // otherwise fail to decode into a struct with required fields and take the
+        // entire briefing document down with it. Decode leniently so one dead
+        // plugin degrades to nil instead of blanking the whole popover.
+        data = try? c.decode(T.self, forKey: .data)
+    }
 }
 
 struct BriefingPlugins: Codable {

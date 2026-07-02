@@ -122,7 +122,17 @@ final class BriefingViewModel: ObservableObject {
             }
         }
         watchOutputFile()
-        try? task.run()
+        do {
+            try task.run()
+        } catch {
+            // If the process never starts (missing .venv/python/bridge.py) there is
+            // no terminationHandler to fall back on — surface it instead of spinning
+            // on "Fetching data…" forever.
+            let sv = UserDefaults.standard.string(forKey: "appLanguage") != "en"
+            stage = .error(sv ? "Kunde inte starta bridge.py – kontrollera .venv och sökväg."
+                              : "Could not launch bridge.py – check .venv and path.")
+            stopStatusPolling()
+        }
     }
 
     // MARK: – File watcher
@@ -152,15 +162,22 @@ final class BriefingViewModel: ObservableObject {
             !decoded.briefing.isEmpty
         else { return }
 
+        // Only the first parse of the day is a genuinely new briefing worth a
+        // notification; later writes (inject_fixture, manual refresh) update the
+        // UI live without re-alerting.
+        let isFirstToday = !hasBriefedToday()
+
         result = decoded
         stage  = .ready
-        fileSource?.cancel()
-        fileSource = nil
+        // Keep the watcher alive so subsequent bridge / inject_fixture writes are
+        // picked up live, as loadCachedIfAvailable() promises.
         stopStatusPolling()
         stampToday()
         updateCurrentHourPrice()
         scheduleMinutelyPriceTick()
-        postBriefingReadyNotification(decoded)
+        if isFirstToday {
+            postBriefingReadyNotification(decoded)
+        }
     }
 
     // MARK: – Price badge (60-second tick)
@@ -237,7 +254,9 @@ final class BriefingViewModel: ObservableObject {
         switch s.stage {
         case "aggregating":         stage = .aggregating
         case "generating_briefing": stage = .generating
-        case "error":               stage = .error(s.error ?? "okänt fel")
+        case "error":
+            let sv = UserDefaults.standard.string(forKey: "appLanguage") != "en"
+            stage = .error(s.error ?? (sv ? "okänt fel" : "unknown error"))
         default: break
         }
     }

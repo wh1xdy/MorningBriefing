@@ -101,10 +101,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func didWake() {
         MainActor.assumeIsolated { briefingVM.triggerBriefingIfNeeded() }
+
+        // Only surface the popover unprompted on the first morning wake of the
+        // day — otherwise it pops open every single time the Mac wakes.
+        guard shouldAutoShowOnWake() else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             guard let self, let btn = self.statusItem.button else { return }
             NotificationCenter.default.post(name: .mbPopoverWillOpen, object: nil)
             self.popover.show(relativeTo: btn.bounds, of: btn, preferredEdge: .minY)
         }
+    }
+
+    private func shouldAutoShowOnWake() -> Bool {
+        let cal   = Calendar.current
+        guard cal.component(.hour, from: Date()) < 12 else { return false }
+        let today = ISO8601DateFormatter.dayKey(Date())
+        let key   = "lastAutoShownDay"
+        guard UserDefaults.standard.string(forKey: key) != today else { return false }
+        UserDefaults.standard.set(today, forKey: key)
+        return true
+    }
+}
+
+private extension ISO8601DateFormatter {
+    static func dayKey(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.calendar   = Calendar(identifier: .gregorian)
+        return f.string(from: date)
     }
 }

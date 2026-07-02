@@ -40,11 +40,11 @@ struct SettingsView: View {
                                 .font(.body)
                             Spacer()
                             Picker("", selection: $language) {
-                                Text("🇸🇪 SV").tag("sv")
-                                Text("🇬🇧 EN").tag("en")
+                                Text("Svenska").tag("sv")
+                                Text("English").tag("en")
                             }
                             .pickerStyle(.segmented)
-                            .frame(width: 110)
+                            .frame(width: 150)
                             .labelsHidden()
                         }
                     }

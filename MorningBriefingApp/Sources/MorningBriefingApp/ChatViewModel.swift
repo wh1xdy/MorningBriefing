@@ -71,19 +71,29 @@ final class ChatViewModel: ObservableObject {
                 guard let self else { return }
                 stdoutPipe.fileHandleForReading.readabilityHandler = nil
                 self.isLoading = false
+                let sv = UserDefaults.standard.string(forKey: "appLanguage") != "en"
                 if p.terminationStatus != 0 {
-                    self.error = String(data: errData, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Okänt fel"
+                    let stderr = String(data: errData, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    self.error = (stderr?.isEmpty == false ? stderr : nil)
+                        ?? (sv ? "Okänt fel" : "Unknown error")
                     self.streamingText = ""
                 } else if !self.streamingText.isEmpty {
                     self.messages.append(ChatMessage(role: .assistant, text: self.streamingText))
                     self.streamingText = ""
                 } else {
-                    self.error = "Inget svar mottaget"
+                    self.error = sv ? "Inget svar mottaget" : "No response received"
                 }
             }
         }
 
-        try? task.run()
+        do {
+            try task.run()
+        } catch {
+            let sv = UserDefaults.standard.string(forKey: "appLanguage") != "en"
+            isLoading = false
+            self.error = sv ? "Kunde inte starta chat.py – kontrollera .venv och sökväg."
+                            : "Could not launch chat.py – check .venv and path."
+        }
     }
 }

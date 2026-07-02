@@ -5,6 +5,9 @@ struct PriceChartView: View {
     let prices: [HourPrice]
     let currentHour: Int
 
+    @AppStorage("appLanguage") private var language: String = "sv"
+    private var sv: Bool { language != "en" }
+
     @State private var animatedDomain: Int = 0
     @State private var pulseScale: CGFloat = 1.0
     @State private var hoverHour: Int? = nil      // nil = no hover
@@ -28,7 +31,7 @@ struct PriceChartView: View {
             // Hover tooltip — fixed height so the chart doesn't jump
             HStack(spacing: 4) {
                 if let h = hoverHour, let p = hoverPrice {
-                    Text(h >= 24 ? "\(h - 24):00 (imorgon)" : "\(h):00")
+                    Text(h >= 24 ? "\(h - 24):00 " + (sv ? "(imorgon)" : "(tomorrow)") : "\(h):00")
                         .font(.caption2).foregroundStyle(.secondary)
                     Text(String(format: "%.1f öre/kWh", p))
                         .font(.caption2.monospacedDigit().weight(.semibold))
@@ -68,7 +71,7 @@ struct PriceChartView: View {
                         .foregroundStyle(Color.secondary.opacity(0.4))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                         .annotation(position: .top, alignment: .leading) {
-                            Text("Imorgon")
+                            Text(sv ? "Imorgon" : "Tomorrow")
                                 .font(.system(size: 9))
                                 .foregroundStyle(.secondary)
                                 .offset(x: 3, y: -2)
