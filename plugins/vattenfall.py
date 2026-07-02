@@ -40,8 +40,10 @@ def fetch_forsmark() -> dict:
     offline = []
     for b in blocks:
         name  = b.get("name", "?")           # "F1", "F2", "F3"
-        mw    = round(b.get("production", 0))
-        pct   = round(b.get("percent", 0), 1)
+        # `or 0` (not a .get default) so an explicit null in the JSON is coerced
+        # too — round(None) would otherwise raise.
+        mw    = round(b.get("production") or 0)
+        pct   = round(b.get("percent") or 0, 1)
         cap   = CAPACITY.get(name, 0)
         is_offline = pct < 5                  # < 5 % = effectively offline
 

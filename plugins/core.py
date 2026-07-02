@@ -23,6 +23,7 @@ def find_cheapest_window(prices: list[dict], window: int = WINDOW_HOURS):
 
     best_avg   = float("inf")
     best_start = prices[0]["hour"]
+    best_end   = best_start + window
 
     for i in range(len(prices) - window + 1):
         segment = prices[i : i + window]
@@ -30,8 +31,11 @@ def find_cheapest_window(prices: list[dict], window: int = WINDOW_HOURS):
         if avg < best_avg:
             best_avg   = avg
             best_start = segment[0]["hour"]
+            # Derive the end from the segment's last hour, not start+window, so a
+            # gap in the hourly data (DST spring-forward, API hole) stays correct.
+            best_end   = segment[-1]["hour"] + 1
 
-    return best_start, best_start + window, round(best_avg, 2)
+    return best_start, best_end, round(best_avg, 2)
 
 
 def analyze() -> dict:
@@ -46,7 +50,7 @@ def analyze() -> dict:
     if start is not None:
         recommendation = (
             f"Kör tunga jobb {start:02d}:00–{end:02d}:00 "
-            f"({window_avg} öre/kWh, {round((daily_avg - window_avg) / daily_avg * 100, 1)}% under dagsnitt)"
+            f"({window_avg} öre/kWh, {round((daily_avg - window_avg) / max(daily_avg, 0.01) * 100, 1)}% under dagsnitt)"
         )
         summary = (
             f"Billigaste {WINDOW_HOURS}h: {start:02d}–{end:02d} @ {window_avg} öre/kWh. "

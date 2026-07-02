@@ -30,13 +30,14 @@ def _write_status(stage: str, error: str | None = None):
 
 def _append_log(payload: dict, briefing: str):
     core = payload.get("plugins", {}).get("core", {}).get("data", {})
+    start, end = core.get("cheapest_window_start"), core.get("cheapest_window_end")
+    # start/end are None (not absent) when core had insufficient price data, so a
+    # plain :02d format would raise — coerce to a readable placeholder instead.
+    window = f"{start:02d}-{end:02d}" if start is not None and end is not None else "n/a"
     entry = {
         "timestamp":            payload.get("generated_at"),
         "predicted_avg_price":  core.get("daily_avg"),
-        "recommendation_window": (
-            f"{core.get('cheapest_window_start', 0):02d}-"
-            f"{core.get('cheapest_window_end', 0):02d}"
-        ),
+        "recommendation_window": window,
         "briefing":             briefing,
         "plugin_data":          payload.get("plugins", {}),
         "actual_avg_price":     None,   # patched by cron_patch.py
@@ -65,7 +66,12 @@ def run(language: str = "sv"):
     }
 
     OUTPUT_FILE.write_text(json.dumps(result, ensure_ascii=False, indent=2))
-    _append_log(payload, briefing)
+    # The briefing is already persisted; a logging failure must not turn a good
+    # run into a user-facing error.
+    try:
+        _append_log(payload, briefing)
+    except Exception as e:
+        print(f"[bridge] log append failed (non-fatal): {e}", file=sys.stderr)
     _write_status("ready")
 
     return result

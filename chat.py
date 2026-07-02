@@ -51,10 +51,11 @@ def load_context() -> str:
         if ed.get("date"):
             parts.append(f"Datum: {ed['date']}")
         if ed.get("avg_price") is not None:
+            mn, mx = ed.get("min_price"), ed.get("max_price")
             parts.append(
                 f"SE3 spotpris — snitt: {ed['avg_price']:.1f}, "
-                f"min: {ed.get('min_price', '?'):.1f}, "
-                f"max: {ed.get('max_price', '?'):.1f} öre/kWh"
+                f"min: {f'{mn:.1f}' if mn is not None else '?'}, "
+                f"max: {f'{mx:.1f}' if mx is not None else '?'} öre/kWh"
             )
         prices = ed.get("prices") or []
         if prices:
@@ -68,10 +69,11 @@ def load_context() -> str:
         core = (data.get("plugins") or {}).get("core") or {}
         cd = core.get("data") or {}
         if cd.get("cheapest_window_start") is not None:
+            davg = cd.get("daily_avg")
             parts.append(
                 f"Billigaste 4h-fönster: {cd['cheapest_window_start']:02d}:00–"
                 f"{cd['cheapest_window_end']:02d}:00 ({cd['cheapest_window_avg']:.1f} öre/kWh, "
-                f"dagsnitt {cd.get('daily_avg', '?'):.1f} öre/kWh)"
+                f"dagsnitt {f'{davg:.1f}' if davg is not None else '?'} öre/kWh)"
             )
 
         reaktor = (data.get("plugins") or {}).get("reaktorstatus") or {}

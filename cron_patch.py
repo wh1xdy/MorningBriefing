@@ -63,12 +63,15 @@ def patch_yesterday():
             continue
         try:
             entry = json.loads(line)
-            ts    = entry.get("timestamp", "")
-            if ts.startswith(yesterday) and entry.get("actual_avg_price") is None:
-                entry["actual_avg_price"] = actual
-                patched += 1
         except json.JSONDecodeError:
-            pass
+            # Preserve the original line verbatim rather than dropping it or
+            # re-emitting a stale entry from a previous iteration.
+            new_lines.append(line)
+            continue
+        ts = entry.get("timestamp", "")
+        if ts.startswith(yesterday) and entry.get("actual_avg_price") is None:
+            entry["actual_avg_price"] = actual
+            patched += 1
         new_lines.append(json.dumps(entry, ensure_ascii=False))
 
     LOG_FILE.write_text("\n".join(new_lines) + "\n")

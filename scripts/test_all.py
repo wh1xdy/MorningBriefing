@@ -271,18 +271,22 @@ def _():
     assert "plugins"  in d,     "missing plugins key"
     assert d["briefing"],       "briefing is empty"
     plugins = d["plugins"]
-    if "elpris" in plugins:
+    # A snapshot written while offline has every plugin in an error state and
+    # no data — that is a network condition at capture time, not a code defect.
+    def _ok(name: str) -> bool:
+        return name in plugins and not plugins[name].get("error")
+    if _ok("elpris"):
         ed = plugins["elpris"].get("data", {})
         assert "prices"    in ed, "elpris.data missing prices"
         assert "avg_price" in ed, "elpris.data missing avg_price"
         for p in ed["prices"]:
             assert "hour"          in p, f"price missing hour: {p}"
             assert "price_ore_kwh" in p, f"price missing price_ore_kwh: {p}"
-    if "core" in plugins:
+    if _ok("core"):
         cd = plugins["core"].get("data", {})
         assert "cheapest_window_start" in cd
         assert "cheapest_window_avg"   in cd
-    if "reaktorstatus" in plugins:
+    if _ok("reaktorstatus"):
         rd = plugins["reaktorstatus"].get("data", {})
         assert "count"           in rd, "reaktorstatus missing count"
         assert "plants"          in rd, "reaktorstatus missing plants"
@@ -296,6 +300,10 @@ def _():
     output = Path.home() / ".morningbriefing" / "latest.json"
     if not output.exists():
         return
+    d = json.loads(output.read_text())
+    elpris = (d.get("plugins") or {}).get("elpris") or {}
+    if elpris.get("error") or not (elpris.get("data") or {}).get("prices"):
+        return   # offline snapshot — no prices to surface, not a code defect
     from chat import load_context
     ctx = load_context()
     assert ctx != "Ingen energidata tillgänglig.", f"load_context returned fallback: {ctx}"

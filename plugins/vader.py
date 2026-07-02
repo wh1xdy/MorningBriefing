@@ -49,10 +49,6 @@ def fetch_weather() -> dict:
     now          = datetime.now(TZ)
     current_hour = min(now.hour, len(temps) - 1)
 
-    temp  = temps[current_hour]
-    wind  = winds[current_hour]
-    cloud = clouds[current_hour]
-
     valid_temps  = [t for t in temps  if t is not None]
     valid_winds  = [w for w in winds  if w is not None]
     valid_clouds = [c for c in clouds if c is not None]
@@ -60,6 +56,12 @@ def fetch_weather() -> dict:
     avg_temp  = round(sum(valid_temps)  / len(valid_temps),  1) if valid_temps  else None
     avg_wind  = round(sum(valid_winds)  / len(valid_winds),  1) if valid_winds  else None
     avg_cloud = round(sum(valid_clouds) / len(valid_clouds), 1) if valid_clouds else None
+
+    # Open-Meteo can return null for an individual hour; fall back to the daily
+    # average so the summary never reads "None°C".
+    temp  = temps[current_hour]  if temps[current_hour]  is not None else avg_temp
+    wind  = winds[current_hour]  if winds[current_hour]  is not None else avg_wind
+    cloud = clouds[current_hour] if clouds[current_hour] is not None else avg_cloud
 
     note = _wind_note(avg_wind or 0)
 
