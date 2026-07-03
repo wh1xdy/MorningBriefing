@@ -38,8 +38,11 @@ def find_cheapest_window(prices: list[dict], window: int = WINDOW_HOURS):
     return best_start, best_end, round(best_avg, 2)
 
 
-def analyze() -> dict:
-    price_data = fetch_prices()
+def analyze(price_data: dict | None = None) -> dict:
+    """Analyze SE3 prices. Accepts an already-fetched elpris payload so the
+    aggregator can share one Nord Pool fetch; self-fetches when run standalone."""
+    if price_data is None:
+        price_data = fetch_prices()
     prices     = price_data["data"]["prices"]
     daily_avg  = price_data["data"]["avg_price"]
     daily_min  = price_data["data"]["min_price"]
@@ -48,9 +51,12 @@ def analyze() -> dict:
     start, end, window_avg = find_cheapest_window(prices)
 
     if start is not None:
+        # Guard on magnitude — daily_avg can be negative on windy low-demand
+        # days, and max(daily_avg, 0.01) would then explode the percentage.
+        pct_under = round((daily_avg - window_avg) / max(abs(daily_avg), 0.01) * 100, 1)
         recommendation = (
             f"Kör tunga jobb {start:02d}:00–{end:02d}:00 "
-            f"({window_avg} öre/kWh, {round((daily_avg - window_avg) / max(daily_avg, 0.01) * 100, 1)}% under dagsnitt)"
+            f"({window_avg} öre/kWh, {pct_under}% under dagsnitt)"
         )
         summary = (
             f"Billigaste {WINDOW_HOURS}h: {start:02d}–{end:02d} @ {window_avg} öre/kWh. "
@@ -60,19 +66,25 @@ def analyze() -> dict:
         recommendation = "Otillräcklig prisdata – kan ej rekommendera körtidsfönster."
         summary        = recommendation
 
+    data = {
+        "daily_avg":      daily_avg,
+        "daily_min":      daily_min,
+        "daily_max":      daily_max,
+        "recommendation": recommendation,
+        "window_hours":   WINDOW_HOURS,
+    }
+    # Omit the window keys entirely on insufficient data — emitting null makes
+    # Swift's decoder drop the whole core block, hiding the fallback
+    # recommendation and the valid daily stats.
+    if start is not None:
+        data["cheapest_window_start"] = start
+        data["cheapest_window_end"]   = end
+        data["cheapest_window_avg"]   = window_avg
+
     return {
         "plugin":  "core",
         "summary": summary,
-        "data": {
-            "cheapest_window_start": start,
-            "cheapest_window_end":   end,
-            "cheapest_window_avg":   window_avg,
-            "daily_avg":             daily_avg,
-            "daily_min":             daily_min,
-            "daily_max":             daily_max,
-            "recommendation":        recommendation,
-            "window_hours":          WINDOW_HOURS,
-        },
+        "data":    data,
     }
 
 

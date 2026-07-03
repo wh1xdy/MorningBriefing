@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 CONTEXT_FILE = Path.home() / ".morningbriefing/latest.json"
 MODEL_ID     = "mlx-community/Mistral-7B-Instruct-v0.3-4bit"
-MAX_TOKENS   = 340   # room for a natural, complete answer
+MAX_TOKENS   = 600   # 340 cut 24-entry hourly-price answers off mid-sentence
 
 _SYSTEM = {
     "sv": (
@@ -39,9 +39,12 @@ _SYSTEM = {
 }
 
 
-def load_context() -> str:
+def load_context(lang: str = "sv") -> str:
+    """Empty string on missing/corrupt data — build_messages supplies the
+    localized no-data fallback."""
+    sv = lang != "en"
     if not CONTEXT_FILE.exists():
-        return "Ingen energidata tillgänglig."
+        return ""
     try:
         data = json.loads(CONTEXT_FILE.read_text())
         parts = []
@@ -49,50 +52,69 @@ def load_context() -> str:
         elpris = (data.get("plugins") or {}).get("elpris") or {}
         ed = elpris.get("data") or {}
         if ed.get("date"):
-            parts.append(f"Datum: {ed['date']}")
+            parts.append(("Datum: " if sv else "Date: ") + str(ed["date"]))
         if ed.get("avg_price") is not None:
             mn, mx = ed.get("min_price"), ed.get("max_price")
             parts.append(
-                f"SE3 spotpris — snitt: {ed['avg_price']:.1f}, "
+                ("SE3 spotpris — snitt: " if sv else "SE3 spot price — avg: ")
+                + f"{ed['avg_price']:.1f}, "
                 f"min: {f'{mn:.1f}' if mn is not None else '?'}, "
                 f"max: {f'{mx:.1f}' if mx is not None else '?'} öre/kWh"
             )
         prices = ed.get("prices") or []
         if prices:
             rows = "  ".join(f"{p['hour']:02d}:{p['price_ore_kwh']:.0f}" for p in prices)
-            parts.append(f"Timpriser (timme:öre/kWh): {rows}")
+            label = "Timpriser (timme:öre/kWh)" if sv else "Hourly prices (hour:öre/kWh)"
+            parts.append(f"{label}: {rows}")
         tomorrow = ed.get("tomorrow_prices") or []
         if tomorrow:
             rows = "  ".join(f"{p['hour']:02d}:{p['price_ore_kwh']:.0f}" for p in tomorrow)
-            parts.append(f"Morgondagens timpriser: {rows}")
+            parts.append(("Morgondagens timpriser: " if sv else "Tomorrow's hourly prices: ") + rows)
 
         core = (data.get("plugins") or {}).get("core") or {}
         cd = core.get("data") or {}
         if cd.get("cheapest_window_start") is not None:
             davg = cd.get("daily_avg")
+            davg_s = f"{davg:.1f}" if davg is not None else "?"
             parts.append(
-                f"Billigaste 4h-fönster: {cd['cheapest_window_start']:02d}:00–"
+                ("Billigaste 4h-fönster: " if sv else "Cheapest 4h window: ")
+                + f"{cd['cheapest_window_start']:02d}:00–"
                 f"{cd['cheapest_window_end']:02d}:00 ({cd['cheapest_window_avg']:.1f} öre/kWh, "
-                f"dagsnitt {f'{davg:.1f}' if davg is not None else '?'} öre/kWh)"
+                + (f"dagsnitt {davg_s} öre/kWh)" if sv else f"daily avg {davg_s} öre/kWh)")
             )
 
         reaktor = (data.get("plugins") or {}).get("reaktorstatus") or {}
         rd = reaktor.get("data") or {}
         active_count   = rd.get("count", 0)
         upcoming_count = rd.get("upcoming_count", 0)
-        if active_count == 0 and upcoming_count == 0:
-            parts.append("Nukleär UMM: inga pågående eller planerade driftstörningar.")
+        if reaktor.get("error") or not rd:
+            # Plugin failed or data missing — must not read as "no outages".
+            parts.append(
+                "Nukleär UMM-data kunde inte hämtas – driftstörningsläget är okänt."
+                if sv else
+                "Nuclear UMM data could not be fetched – outage status is unknown."
+            )
+        elif active_count == 0 and upcoming_count == 0:
+            parts.append(
+                "Nukleär UMM: inga pågående eller planerade driftstörningar."
+                if sv else
+                "Nuclear UMM: no active or planned outages."
+            )
         else:
             if active_count > 0 and rd.get("plants"):
                 mw = rd.get("total_unavail_mw")
                 plants = ", ".join(rd["plants"])
                 parts.append(
-                    f"Nukleär UMM aktiv ({active_count} st): {plants}"
-                    + (f" — {mw} MW otillgängliga" if mw else "")
+                    (f"Nukleär UMM aktiv ({active_count} st): {plants}" if sv
+                     else f"Nuclear UMM active ({active_count}): {plants}")
+                    + ((f" — {mw} MW otillgängliga" if sv else f" — {mw} MW unavailable") if mw else "")
                 )
             if upcoming_count > 0 and rd.get("upcoming_plants"):
                 up = ", ".join(rd["upcoming_plants"])
-                parts.append(f"Nukleär UMM planerad ({upcoming_count} st): {up}")
+                parts.append(
+                    f"Nukleär UMM planerad ({upcoming_count} st): {up}" if sv
+                    else f"Nuclear UMM planned ({upcoming_count}): {up}"
+                )
 
         # Vattenfall live production
         vf = (data.get("plugins") or {}).get("vattenfall") or {}
@@ -103,25 +125,31 @@ def load_context() -> str:
                 for b in vd["blocks"]
             )
             offline = vd.get("offline") or []
+            label = ("Forsmark realtidsproduktion (Vattenfall)" if sv
+                     else "Forsmark real-time production (Vattenfall)")
             if offline:
-                parts.append(f"Forsmark realtidsproduktion (Vattenfall): {block_rows}. Offline: {', '.join(offline)}")
+                parts.append(f"{label}: {block_rows}. Offline: {', '.join(offline)}")
             else:
-                parts.append(f"Forsmark realtidsproduktion (Vattenfall): {block_rows}. Alla block i drift.")
+                parts.append(f"{label}: {block_rows}. " + ("Alla block i drift." if sv else "All blocks running."))
 
         briefing = data.get("briefing", "")
         if briefing:
-            parts.append(f"Dagens sammanfattning: {briefing}")
+            parts.append(("Dagens sammanfattning: " if sv else "Today's summary: ") + briefing)
 
         # Ground the "what are your sources?" question so the model doesn't invent.
         parts.append(
             "Datakällor: Nord Pool Day-Ahead (SE3 spotpriser), Nord Pool UMM "
             "(kärnkraft-driftstörningar), Open-Meteo (väder i Stockholm), Vattenfall "
             "(Forsmark realtidsproduktion). Briefingtexten skrivs av en lokal Mistral-7B-modell."
+            if sv else
+            "Data sources: Nord Pool Day-Ahead (SE3 spot prices), Nord Pool UMM "
+            "(nuclear outage messages), Open-Meteo (Stockholm weather), Vattenfall "
+            "(Forsmark real-time production). The briefing text is written by a local Mistral-7B model."
         )
 
-        return "\n".join(parts) if parts else "Ingen energidata tillgänglig."
+        return "\n".join(parts)
     except Exception:
-        return "Ingen energidata tillgänglig."
+        return ""
 
 
 def build_messages(history: list, question: str, context: str, lang: str = "sv") -> list:
@@ -168,7 +196,7 @@ def main():
     if len(history) > 6:
         history = history[-6:]
 
-    context  = load_context()
+    context  = load_context(lang=args.language)
     messages = build_messages(history, args.question, context, lang=args.language)
 
     from mlx_lm import load, stream_generate
@@ -180,6 +208,7 @@ def main():
     )
     sampler   = make_sampler(temp=0.4)
     logit_fns = make_logits_processors(repetition_penalty=1.3)
+    last = None
     for response in stream_generate(
         model, tokenizer, prompt=prompt,
         max_tokens=MAX_TOKENS,
@@ -187,6 +216,12 @@ def main():
         logits_processors=logit_fns,
     ):
         sys.stdout.write(response.text)
+        sys.stdout.flush()
+        last = response
+    # mlx-lm's final chunk carries finish_reason; "length" means we hit
+    # MAX_TOKENS mid-sentence — mark the cutoff so it doesn't read as complete.
+    if last is not None and last.finish_reason == "length":
+        sys.stdout.write(" …")
         sys.stdout.flush()
 
 

@@ -23,9 +23,10 @@ def fetch_forsmark() -> dict:
     resp = requests.get(URL, headers=HEADERS, timeout=15)
     resp.raise_for_status()
 
-    # Extract the JSON blob from <script type="application/json" data-json-data>
+    # Extract the JSON blob from the <script … data-json-data …> tag. Match on
+    # the data attribute alone — attribute order is template-tooling dependent.
     match = re.search(
-        r'<script[^>]+type=["\']application/json["\'][^>]+data-json-data[^>]*>(.*?)</script>',
+        r'<script[^>]*\bdata-json-data\b[^>]*>(.*?)</script>',
         resp.text,
         re.DOTALL,
     )

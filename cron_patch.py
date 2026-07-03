@@ -9,8 +9,9 @@ Launchd plist example (~/.local/share/morningbriefing or see README):
 """
 import json
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -18,22 +19,11 @@ LOG_FILE = Path.home() / ".morningbriefing" / "log.jsonl"
 
 
 def fetch_actual_avg(date_str: str, zone: str = "SE3", currency: str = "SEK") -> float | None:
-    """Fetch actual day-ahead price average for a past date."""
+    """Fetch actual day-ahead price average for a past date. Uses elpris's
+    date-parameterized helper directly, so the fallback endpoint is tried too."""
     try:
-        from plugins.elpris import fetch_prices
-        data = fetch_prices(delivery_area=zone, currency=currency)
-        # fetch_prices fetches today — if date matches, use it; else re-fetch with date param
-        if data["data"]["date"] == date_str:
-            return data["data"]["avg_price"]
-
-        # Re-fetch for the specific past date
-        import requests
-        from plugins.elpris import PRIMARY_URL, HEADERS, _parse_entries
-        from zoneinfo import ZoneInfo
-        params = {"market": "DayAhead", "deliveryArea": zone, "currency": currency, "date": date_str}
-        resp = requests.get(PRIMARY_URL, params=params, headers=HEADERS, timeout=10)
-        resp.raise_for_status()
-        prices = _parse_entries(resp.json(), zone)
+        from plugins.elpris import _fetch_for_date
+        prices, _ = _fetch_for_date(date_str, zone, currency)
         if not prices:
             return None
         return round(sum(p["price_ore_kwh"] for p in prices) / len(prices), 2)
@@ -47,7 +37,9 @@ def patch_yesterday():
         print("[cron_patch] no log file found, skipping")
         return
 
-    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    # Lokal Stockholmstid — jobbet körs 01:00 lokalt; UTC vore två dygn bakåt
+    # under sommartid (01:00 CEST = 23:00 UTC föregående dag).
+    yesterday = (datetime.now(ZoneInfo("Europe/Stockholm")) - timedelta(days=1)).strftime("%Y-%m-%d")
     actual    = fetch_actual_avg(yesterday)
 
     if actual is None:

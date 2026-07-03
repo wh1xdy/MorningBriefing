@@ -15,7 +15,6 @@ import sys
 import time
 import traceback
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -75,6 +74,20 @@ def _():
     from plugins.core import find_cheapest_window
     s, e, avg = find_cheapest_window([{"hour": 0, "price_ore_kwh": 50}], window=4)
     assert s is None and e is None and avg is None
+
+
+@test("core: find_cheapest_window — hour gap (DST day)")
+def _():
+    from plugins.core import find_cheapest_window
+    # 23 timmar — timme 02 saknas (DST spring-forward / API-hål).
+    hours = [h for h in range(24) if h != 2]
+    prices = [{"hour": h, "price_ore_kwh": 10.0 if h in (0, 1, 3, 4) else 100.0}
+              for h in hours]
+    s, e, avg = find_cheapest_window(prices, window=4)
+    assert s == 0, f"expected start=0, got {s}"
+    # End derives from the segment's real last hour (4 + 1), not start+window.
+    assert e == 5, f"expected end=5 (gap-aware), got {e}"
+    assert abs(avg - 10.0) < 0.01, f"avg={avg}"
 
 
 # ─── elpris.py ────────────────────────────────────────────────────────────────
@@ -143,6 +156,46 @@ def _():
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     assert _is_still_relevant([{"eventStop": None}], now)
+
+
+# ─── cron_patch.py ────────────────────────────────────────────────────────────
+
+@test("cron_patch: malformed log line preserved verbatim, no duplicates")
+def _():
+    import contextlib
+    import io
+    import tempfile
+    import cron_patch
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    yesterday = (datetime.now(ZoneInfo("Europe/Stockholm")) - timedelta(days=1)).strftime("%Y-%m-%d")
+    # Korrupt rad FÖRST — får inte krascha och får inte dubblera någon annan post.
+    corrupt_first = '{"timestamp": "' + yesterday + 'T07:00'   # avhuggen JSON
+    valid = json.dumps(
+        {"timestamp": f"{yesterday}T07:00:00+02:00", "avg_price": 80.0, "actual_avg_price": None},
+        ensure_ascii=False,
+    )
+    corrupt_last = "not json at all"
+
+    old_log, old_fetch = cron_patch.LOG_FILE, cron_patch.fetch_actual_avg
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "log.jsonl"
+            log.write_text("\n".join([corrupt_first, valid, corrupt_last]) + "\n")
+            cron_patch.LOG_FILE = log
+            cron_patch.fetch_actual_avg = lambda *a, **kw: 55.5   # ingen nätverkstrafik
+            with contextlib.redirect_stdout(io.StringIO()):
+                cron_patch.patch_yesterday()
+            lines = log.read_text().splitlines()
+    finally:
+        cron_patch.LOG_FILE, cron_patch.fetch_actual_avg = old_log, old_fetch
+
+    assert len(lines) == 3, f"expected 3 lines back, got {len(lines)}: {lines}"
+    assert lines[0] == corrupt_first, f"first corrupt line not preserved verbatim: {lines[0]!r}"
+    assert lines[2] == corrupt_last,  f"corrupt line not preserved verbatim: {lines[2]!r}"
+    patched = json.loads(lines[1])
+    assert patched["actual_avg_price"] == 55.5, f"entry not patched: {patched}"
 
 
 # ─── chat.py ─────────────────────────────────────────────────────────────────
@@ -310,6 +363,43 @@ def _():
     assert "öre/kWh" in ctx, "context missing price unit"
 
 
+@test("chat: load_context — None min/max/daily_avg render as '?' (fixture)")
+def _():
+    import tempfile
+    import chat
+
+    fixture = {
+        "briefing": "Testbriefing.",
+        "plugins": {
+            "elpris": {"plugin": "elpris", "data": {
+                "date": "2026-07-02",
+                "avg_price": 89.0, "min_price": None, "max_price": None,
+                "prices": [{"hour": 0, "price_ore_kwh": 89.0}],
+            }},
+            "core": {"plugin": "core", "data": {
+                "cheapest_window_start": 10, "cheapest_window_end": 14,
+                "cheapest_window_avg": 41.0, "daily_avg": None,
+            }},
+        },
+    }
+    old = chat.CONTEXT_FILE
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            ctx_file = Path(td) / "latest.json"
+            ctx_file.write_text(json.dumps(fixture, ensure_ascii=False))
+            chat.CONTEXT_FILE = ctx_file
+            ctx = chat.load_context()
+    finally:
+        chat.CONTEXT_FILE = old
+
+    # load_context sväljer exceptions till "" — en regression i None-guarderna
+    # skulle synas här som tom kontext.
+    assert ctx, "load_context returned empty for a valid partial payload"
+    assert "öre/kWh" in ctx, "context missing price unit"
+    assert "min: ?" in ctx and "max: ?" in ctx, f"None min/max not rendered as '?': {ctx}"
+    assert "dagsnitt ? öre/kWh" in ctx, f"None daily_avg not rendered as '?': {ctx}"
+
+
 # ─── Live API smoke tests ─────────────────────────────────────────────────────
 
 def live_test(name: str):
@@ -378,7 +468,10 @@ def live_core():
     d = r["data"]
     assert d["cheapest_window_start"] is not None
     assert 0 <= d["cheapest_window_start"] <= 20
-    assert d["cheapest_window_end"] == d["cheapest_window_start"] + 4
+    # Gap-aware end: derived from the segment's last real hour, so on a DST
+    # spring-forward day (hour 02 missing) the window may span 5 clock hours.
+    assert d["cheapest_window_start"] + 4 <= d["cheapest_window_end"] <= d["cheapest_window_start"] + 5, \
+        f"window {d['cheapest_window_start']}–{d['cheapest_window_end']} inconsistent"
 
 
 @live_test("aggregator: run_all all plugins succeed")

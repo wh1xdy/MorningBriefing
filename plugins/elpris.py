@@ -6,9 +6,11 @@ Endpoint status (tested 2026-05-22):
   PRIMARY:  dataportal-api.nordpoolgroup.com/api/DayAheadPrices - works unauthenticated
   FALLBACK: data.nordpoolgroup.com/api/DayAheadPrices           - not yet tested
   NOTE: The API returns 15-minute resolution (96 entries/day). _parse_entries
-        averages the four quarter-hour blocks into 24 hourly prices.
+        averages the four quarter-hour blocks into hourly prices (24 normally,
+        23/25 on DST switch days).
 """
 import json
+import sys
 import requests
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -25,11 +27,14 @@ HEADERS = {"Accept": "application/json", "User-Agent": "MorningBriefing/1.0"}
 
 def _parse_entries(raw: dict, delivery_area: str) -> list[dict]:
     """
-    API returns 15-minute blocks (96/day). Aggregate to 24 hourly averages.
+    API returns 15-minute blocks (96/day). Aggregate to hourly averages.
+    Bucketed by UTC delivery hour — not local hour-of-day — so the duplicated
+    local 02:00 on the DST fall-back day stays two separate market hours
+    (25 entries) instead of being averaged into one distorted price.
     Conversion: SEK/MWh ÷ 10 = öre/kWh.
     """
     entries = raw.get("multiAreaEntries", [])
-    hour_buckets: dict[int, list[float]] = {}
+    hour_buckets: dict[datetime, list[float]] = {}
 
     for entry in entries:
         price_mwh = entry.get("entryPerArea", {}).get(delivery_area)
@@ -37,17 +42,17 @@ def _parse_entries(raw: dict, delivery_area: str) -> list[dict]:
             continue
         start_str = entry.get("deliveryStart", "")
         try:
-            start_utc  = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
-            local_hour = start_utc.astimezone(TZ).hour
+            start_utc = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
         except ValueError:
             continue
-        hour_buckets.setdefault(local_hour, []).append(price_mwh)
+        utc_hour = start_utc.replace(minute=0, second=0, microsecond=0)
+        hour_buckets.setdefault(utc_hour, []).append(price_mwh)
 
     prices = []
-    for hour in sorted(hour_buckets):
-        avg_mwh = sum(hour_buckets[hour]) / len(hour_buckets[hour])
+    for utc_hour in sorted(hour_buckets):
+        avg_mwh = sum(hour_buckets[utc_hour]) / len(hour_buckets[utc_hour])
         prices.append({
-            "hour":           hour,
+            "hour":           utc_hour.astimezone(TZ).hour,
             "price_ore_kwh":  round(avg_mwh / 10, 2),
         })
     return prices
@@ -102,14 +107,16 @@ def fetch_prices(delivery_area: str = ZONE, currency: str = CURRENCY) -> dict:
     mx  = max(p["price_ore_kwh"] for p in prices)
     mn  = min(p["price_ore_kwh"] for p in prices)
 
-    # Tomorrow's prices are published ~13:00 CET — silently omit if unavailable
+    # Tomorrow's prices are published ~13:00 CET — omit if unavailable, but
+    # log to stderr so a real regression (schema change, auth wall) is visible.
+    # RuntimeError = both endpoints failed (raised by _fetch_for_date).
     tomorrow_prices = None
     try:
         t_prices, _ = _fetch_for_date(tomorrow, delivery_area, currency)
         if t_prices:
             tomorrow_prices = t_prices
-    except Exception:
-        pass
+    except (requests.RequestException, ValueError, RuntimeError) as e:
+        print(f"[elpris] tomorrow's prices unavailable for {tomorrow}: {e}", file=sys.stderr)
 
     data = {
         "zone":          delivery_area,

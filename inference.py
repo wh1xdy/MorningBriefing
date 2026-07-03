@@ -32,7 +32,8 @@ def build_user_prompt(payload: dict, language: str = "sv") -> str:
     plugins   = payload.get("plugins", {})
     elpris    = plugins.get("elpris",        {}).get("data", {})
     core      = plugins.get("core",          {}).get("data", {})
-    reaktor   = plugins.get("reaktorstatus", {}).get("data", {})
+    reaktor_p = plugins.get("reaktorstatus", {})
+    reaktor   = reaktor_p.get("data", {})
     vader     = plugins.get("vader",         {}).get("data", {})
 
     sv = language == "sv"
@@ -54,11 +55,17 @@ def build_user_prompt(payload: dict, language: str = "sv") -> str:
         e  = core["cheapest_window_end"]
         ca = core["cheapest_window_avg"]
         da = core.get("daily_avg", avg or 0)
-        pct = round((da - ca) / max(da, 0.01) * 100, 1)
+        # Zero/negative daily avg (extreme wind/holiday days) makes the
+        # percentage meaningless — skip the clause instead of emitting absurd numbers.
+        pct_en = pct_sv = ""
+        if da is not None and da > 0:
+            pct = round((da - ca) / da * 100, 1)
+            pct_en = f", {pct}% below daily avg"
+            pct_sv = f", {pct}% under dagsnitt"
         facts.append(
-            f"Cheapest 4h window: {s:02d}:00–{e:02d}:00 ({ca:.1f} öre/kWh, {pct}% below daily avg)."
+            f"Cheapest 4h window: {s:02d}:00–{e:02d}:00 ({ca:.1f} öre/kWh{pct_en})."
             if not sv else
-            f"Billigaste 4h-fönster: {s:02d}:00–{e:02d}:00 ({ca:.1f} öre/kWh, {pct}% under dagsnitt)."
+            f"Billigaste 4h-fönster: {s:02d}:00–{e:02d}:00 ({ca:.1f} öre/kWh{pct_sv})."
         )
 
     umms = reaktor.get("active_umms") or []
@@ -66,10 +73,14 @@ def build_user_prompt(payload: dict, language: str = "sv") -> str:
     if umms:
         for u in umms:
             end = (u.get("event_end") or ("unknown date" if not sv else "okänt datum"))[:10]
+            # Key is always present but the value can be None — coerce the value
+            # so the prompt never reads "None MW".
+            mw = u.get("unavailable_mw")
+            mw = "?" if mw is None else mw
             facts.append(
-                f"Nuclear UMM (active): {u['plant']} ({u['zone']}) has {u.get('unavailable_mw','?')} MW unavailable until {end}."
+                f"Nuclear UMM (active): {u['plant']} ({u['zone']}) has {mw} MW unavailable until {end}."
                 if not sv else
-                f"Nukleär UMM (aktiv): {u['plant']} ({u['zone']}) har {u.get('unavailable_mw','?')} MW otillgängliga t.o.m. {end}."
+                f"Nukleär UMM (aktiv): {u['plant']} ({u['zone']}) har {mw} MW otillgängliga t.o.m. {end}."
             )
     if upcoming:
         # Dedup by plant, keep earliest start date so the model can't read
@@ -89,7 +100,15 @@ def build_user_prompt(payload: dict, language: str = "sv") -> str:
                 f"Kärnreaktor i drift med planerat kommande avbrott: {p}{when_sv} (i normal drift just nu)."
             )
     if not umms and not upcoming:
-        facts.append("No nuclear UMMs right now." if not sv else "Inga nukleära UMM just nu.")
+        if reaktor_p.get("error") or not reaktor:
+            # Plugin failed or data missing — must not read as a quiet grid.
+            facts.append(
+                "Nuclear UMM data could not be fetched – outage status is unknown."
+                if not sv else
+                "Nukleär UMM-data kunde inte hämtas – driftstörningsläget är okänt."
+            )
+        else:
+            facts.append("No nuclear UMMs right now." if not sv else "Inga nukleära UMM just nu.")
 
     wind = vader.get("daily_avg_wind_ms")
     if wind is not None:
@@ -133,17 +152,40 @@ def generate_briefing(payload: dict, language: str = "sv") -> str:
     )
 
     body = _strip_model_recommendation(response.strip(), language)
-    return (body + _recommendation_sentence(payload, language)).rstrip()
+    return (body + _recommendation_sentence(payload, language)).strip()
+
+
+# Abbreviation dots (kl. 02:00, t.o.m., ca.) must not count as sentence ends,
+# or the splitter orphans half a recommendation.
+_ABBREV_RE = re.compile(
+    r"\b(?:kl|ca|t\.o\.m|t\.ex|fr\.o\.m|bl\.a|m\.m|dvs|osv|e\.g|i\.e|approx)\.",
+    re.IGNORECASE,
+)
 
 
 def _strip_model_recommendation(text: str, language: str = "sv") -> str:
     """Mistral-7B ignores 'write no recommendation' and tacks on its own line
     with unreliable numbers. Drop any sentence that mentions running loads so
     the deterministic appended line is the only recommendation."""
-    markers = ("heavy load", "run heavy") if language != "sv" else ("tunga jobb", "tung last")
-    sentences = re.split(r"(?<=[.!?])\s+", text)
-    kept = [s for s in sentences if not any(m in s.lower() for m in markers)]
-    return " ".join(kept).strip()
+    marker = (
+        re.compile(r"heavy\s+(?:load|job)|run\s+heavy", re.IGNORECASE)
+        if language != "sv" else
+        re.compile(r"tung\w*\s+(?:jobb|last)", re.IGNORECASE)  # tunga jobb, tung last, tunga laster, …
+    )
+    masked = _ABBREV_RE.sub(lambda m: m.group(0).replace(".", "\x00"), text)
+    kept, dropped_prev = [], False
+    for s in re.split(r"(?<=[.!?])\s+", masked):
+        if marker.search(s):
+            dropped_prev = True
+            continue
+        # A fragment opening lowercase/with a digit right after a dropped
+        # sentence is the tail of that recommendation (an abbreviation we
+        # didn't mask split it) — drop it too.
+        if dropped_prev and s and (s[0].islower() or s[0].isdigit()):
+            continue
+        dropped_prev = False
+        kept.append(s)
+    return " ".join(kept).replace("\x00", ".").strip()
 
 
 def _recommendation_sentence(payload: dict, language: str = "sv") -> str:

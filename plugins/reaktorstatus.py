@@ -3,8 +3,11 @@
 Fetches active REMIT UMM production messages from Nord Pool, filtered for Nordic nuclear.
 API: ummapi.nordpoolgroup.com/messages — public, no auth required.
 
-Schema (confirmed 2026-05-22):
-  Response:  {"items": [...], "total": N}  — paginated, default 2000 items/page
+Schema (confirmed 2026-05-22, pagination/filters re-verified 2026-07-03):
+  Response:  {"items": [...], "total": N}  — paginated via ?limit=&skip=,
+             default 2000 items/page
+  Filters:   ?messageTypes=1&fuelTypes=14 narrows server-side to nuclear
+             production UMMs (superset of the local filtering below)
   messageType 1 = Production UMM
   productionUnits[].fuelType 14 = Nuclear (ENTSO-E fuel type code)
   productionUnits[].areaName  = bidding zone ("SE3", "FI", …)
@@ -32,6 +35,35 @@ MSG_PRODUCTION = 1
 
 HEADERS = {"Accept": "application/json", "User-Agent": "MorningBriefing/1.0"}
 
+PAGE_SIZE = 2000
+MAX_PAGES = 5   # hård gräns — skydd mot en skenande paginering
+
+
+def _fetch_all_messages() -> list[dict]:
+    """Follow the API's paging until 'total' is exhausted (capped at MAX_PAGES).
+    Server-side filters shrink the set to nuclear production UMMs so old
+    still-active outages don't fall off the first page."""
+    items: list[dict] = []
+    total = None
+    for page in range(MAX_PAGES):
+        params = {
+            "messageTypes": MSG_PRODUCTION,
+            "fuelTypes":    FUEL_NUCLEAR,
+            "limit":        PAGE_SIZE,
+            "skip":         page * PAGE_SIZE,
+        }
+        resp = requests.get(UMM_URL, params=params, headers=HEADERS, timeout=15)
+        resp.raise_for_status()
+        payload = resp.json()
+        batch = payload.get("items", [])
+        items.extend(batch)
+        total = payload.get("total")
+        if not batch or len(batch) < PAGE_SIZE:
+            break
+        if total is not None and len(items) >= total:
+            break
+    return items
+
 
 def _is_still_relevant(periods: list[dict], now: datetime) -> bool:
     """True if any time period ends in the future (or has no end)."""
@@ -45,7 +77,8 @@ def _is_still_relevant(periods: list[dict], now: datetime) -> bool:
             stop = datetime.fromisoformat(stop_str.replace("Z", "+00:00"))
             if stop > now:
                 return True
-        except ValueError:
+        except (ValueError, TypeError):
+            # TypeError: offset-less timestamp → naive datetime vs aware `now`
             return True
     return False
 
@@ -53,10 +86,7 @@ def _is_still_relevant(periods: list[dict], now: datetime) -> bool:
 def fetch_umm() -> dict:
     now = datetime.now(timezone.utc)
 
-    resp = requests.get(UMM_URL, headers=HEADERS, timeout=15)
-    resp.raise_for_status()
-    payload = resp.json()
-    messages = payload.get("items", [])
+    messages = _fetch_all_messages()
 
     nuclear = []
     for msg in messages:
@@ -82,7 +112,7 @@ def fetch_umm() -> dict:
                         stop = datetime.fromisoformat(stop_str.replace("Z", "+00:00"))
                         if stop <= now:
                             continue
-                    except ValueError:
+                    except (ValueError, TypeError):
                         pass
 
                 start_str = period.get("eventStart")
@@ -91,7 +121,7 @@ def fetch_umm() -> dict:
                     try:
                         start = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
                         is_active = start <= now
-                    except ValueError:
+                    except (ValueError, TypeError):
                         is_active = True   # unknown start → assume active
                 else:
                     is_active = True
@@ -119,20 +149,28 @@ def fetch_umm() -> dict:
     active_plants   = sorted({u["plant"] for u in active})
     upcoming_plants = sorted({u["plant"] for u in upcoming})
     all_plants      = sorted({u["plant"] for u in nuclear})
-    total_unavail   = sum(u["unavailable_mw"] or 0 for u in active)
+
+    # Overlappande UMM (t.ex. avbrott + separat förlängning) täcker samma verk —
+    # ta max per verk i stället för att summera rått, annars dubbelräknas MW.
+    # round() → int, så Swifts Int?-decode inte fäller hela reaktorkortet.
+    unavail_per_plant: dict[str, float] = {}
+    for u in active:
+        mw = u["unavailable_mw"] or 0
+        unavail_per_plant[u["plant"]] = max(unavail_per_plant.get(u["plant"], 0), mw)
+    total_unavail = round(sum(unavail_per_plant.values()))
 
     if active:
         summary = (
-            f"{len(active_plants)} aktiva nukleära UMM i Norden. "
-            f"Berörda: {', '.join(active_plants)}. "
+            f"Aktiva nukleära UMM i Norden — {len(active_plants)} "
+            f"berörda verk: {', '.join(active_plants)}. "
             f"Totalt unavailable: {total_unavail} MW."
         )
         if upcoming_plants:
-            summary += f" Planerade ({len(upcoming_plants)}): {', '.join(upcoming_plants)}."
+            summary += f" Planerade verk ({len(upcoming_plants)}): {', '.join(upcoming_plants)}."
     elif upcoming_plants:
         summary = (
             f"Inga pågående nukleära UMM. "
-            f"Planerade ({len(upcoming_plants)}): {', '.join(upcoming_plants)}."
+            f"Planerade verk ({len(upcoming_plants)}): {', '.join(upcoming_plants)}."
         )
     else:
         summary = "Inga nukleära UMM i Norden just nu."
