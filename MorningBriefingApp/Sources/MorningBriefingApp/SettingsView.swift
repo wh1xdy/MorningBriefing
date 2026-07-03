@@ -18,6 +18,8 @@ struct SettingsView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(language == "sv" ? "Tillbaka" : "Back")
+                .help(language == "sv" ? "Tillbaka" : "Back")
 
                 Spacer()
                 Text(language == "sv" ? "Inställningar" : "Settings")

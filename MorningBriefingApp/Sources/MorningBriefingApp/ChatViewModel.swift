@@ -57,29 +57,56 @@ final class ChatViewModel: ObservableObject {
         task.standardOutput = stdoutPipe
         task.standardError  = stderrPipe
 
+        // Accumulate both pipes off the main thread. stderr must be drained
+        // while the process runs — if chat.py writes more than the ~64 KB pipe
+        // buffer (e.g. Hugging Face download progress on a model cache miss)
+        // an unread pipe blocks its writes and the process never exits.
+        let bufferLock   = NSLock()
+        var stdoutBuffer = Data()
+        var stderrBuffer = Data()
+
         stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
+            guard !data.isEmpty else { return }
+            bufferLock.lock()
+            stdoutBuffer.append(data)
+            let text = String(decoding: stdoutBuffer, as: UTF8.self)
+            bufferLock.unlock()
             DispatchQueue.main.async { [weak self] in
-                self?.streamingText += chunk
+                guard let self, self.isLoading else { return }
+                self.streamingText = text
             }
         }
 
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            bufferLock.lock()
+            stderrBuffer.append(data)
+            bufferLock.unlock()
+        }
+
         task.terminationHandler = { [weak self] p in
-            let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            // Stop the readability handlers first, then drain any remaining
+            // bytes synchronously so finalization never races the last chunk.
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            bufferLock.lock()
+            stdoutBuffer.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+            stderrBuffer.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            let outText = String(decoding: stdoutBuffer, as: UTF8.self)
+            let errText = String(decoding: stderrBuffer, as: UTF8.self)
+            bufferLock.unlock()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                stdoutPipe.fileHandleForReading.readabilityHandler = nil
                 self.isLoading = false
                 let sv = UserDefaults.standard.string(forKey: "appLanguage") != "en"
                 if p.terminationStatus != 0 {
-                    let stderr = String(data: errData, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    self.error = (stderr?.isEmpty == false ? stderr : nil)
-                        ?? (sv ? "Okänt fel" : "Unknown error")
+                    let stderr = errText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    self.error = stderr.isEmpty ? (sv ? "Okänt fel" : "Unknown error") : stderr
                     self.streamingText = ""
-                } else if !self.streamingText.isEmpty {
-                    self.messages.append(ChatMessage(role: .assistant, text: self.streamingText))
+                } else if !outText.isEmpty {
+                    self.messages.append(ChatMessage(role: .assistant, text: outText))
                     self.streamingText = ""
                 } else {
                     self.error = sv ? "Inget svar mottaget" : "No response received"
@@ -90,6 +117,10 @@ final class ChatViewModel: ObservableObject {
         do {
             try task.run()
         } catch {
+            // Launch failed — the terminationHandler never fires, so release
+            // the pipe read sources here to avoid leaking file handles.
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
             let sv = UserDefaults.standard.string(forKey: "appLanguage") != "en"
             isLoading = false
             self.error = sv ? "Kunde inte starta chat.py – kontrollera .venv och sökväg."

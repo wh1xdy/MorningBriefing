@@ -42,5 +42,11 @@ struct AnimatedBriefingText: View {
             }
         }
         .onAppear { visibleCount = sentences.count }
+        // The text can change in place while the view is alive (refresh button,
+        // live file watcher) — reset and replay the reveal for the new sentences.
+        .onChange(of: text) { _, _ in
+            visibleCount = 0
+            DispatchQueue.main.async { visibleCount = sentences.count }
+        }
     }
 }

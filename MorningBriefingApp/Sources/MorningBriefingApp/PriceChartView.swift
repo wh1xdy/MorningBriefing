@@ -15,7 +15,10 @@ struct PriceChartView: View {
     private var maxHour: Int { prices.map(\.hour).max() ?? 23 }
     private var has48h: Bool { maxHour > 23 }
     private var domainEnd: Int { has48h ? 47 : 23 }
-    private var maxY: Double { (prices.map(\.priceOreKwh).max() ?? 100) * 1.15 }
+    // SE3 spot prices can go negative — extend the domain below zero when needed,
+    // and never let the top drop below zero on an all-negative day.
+    private var minY: Double { min(0, (prices.map(\.priceOreKwh).min() ?? 0) * 1.15) }
+    private var maxY: Double { max(0, prices.map(\.priceOreKwh).max() ?? 100) * 1.15 }
     private var currentPrice: Double? { prices.first(where: { $0.hour == currentHour })?.priceOreKwh }
     private var hoverPrice: Double? {
         guard let h = hoverHour else { return nil }
@@ -45,7 +48,7 @@ struct PriceChartView: View {
                 ForEach(prices.filter { $0.hour <= animatedDomain }) { p in
                     AreaMark(
                         x: .value("h", p.hour),
-                        yStart: .value("base", 0),
+                        yStart: .value("base", minY),
                         yEnd:   .value("öre", p.priceOreKwh)
                     )
                     .foregroundStyle(
@@ -118,7 +121,7 @@ struct PriceChartView: View {
                     }
                 }
             }
-            .chartYScale(domain: 0...maxY)
+            .chartYScale(domain: minY...max(maxY, minY + 1))
             .frame(height: 100)
             .chartOverlay { proxy in
                 GeometryReader { geo in
@@ -139,6 +142,11 @@ struct PriceChartView: View {
             .onAppear {
                 withAnimation(.spring(duration: 0.6, bounce: 0.1)) { animatedDomain = maxHour }
                 withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) { pulseScale = 2.2 }
+            }
+            // Prices can update while the popover is open (live file watcher, refresh,
+            // tomorrow's prices at ~13:00) — extend the reveal to the new range.
+            .onChange(of: maxHour) { _, newMax in
+                withAnimation(.spring(duration: 0.6, bounce: 0.1)) { animatedDomain = newMax }
             }
         }
     }

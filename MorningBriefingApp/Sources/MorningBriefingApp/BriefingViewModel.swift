@@ -114,11 +114,21 @@ final class BriefingViewModel: ObservableObject {
         task.terminationHandler = { [weak self] p in
             DispatchQueue.main.async {
                 guard let self else { return }
-                if p.terminationStatus != 0, case .ready = self.stage { return }
-                if p.terminationStatus != 0 {
-                    self.stage = .error("bridge.py exited \(p.terminationStatus)")
-                    self.stopStatusPolling()
+                guard p.terminationStatus != 0 else { return }
+                switch self.stage {
+                case .ready, .error: return   // briefing landed / error already surfaced
+                default: break
                 }
+                // bridge.py writes a friendly, localized message to status.json just
+                // before exiting 1 — prefer it over the raw exit code.
+                if let data = try? Data(contentsOf: statusURL),
+                   let s    = try? JSONDecoder().decode(StatusResult.self, from: data),
+                   s.stage == "error", let msg = s.error, !msg.isEmpty {
+                    self.stage = .error(msg)
+                } else {
+                    self.stage = .error("bridge.py exited \(p.terminationStatus)")
+                }
+                self.stopStatusPolling()
             }
         }
         watchOutputFile()
@@ -222,14 +232,17 @@ final class BriefingViewModel: ObservableObject {
     private var outputTimer: Timer?
 
     private func startOutputPolling() {
-        outputTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        outputTimer?.invalidate()   // re-entry (e.g. retry after failure) must not orphan the old poll
+        outputTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
+            guard FileManager.default.fileExists(atPath: outputURL.path) else { return }
+            // Invalidate the timer that actually fired — outputTimer may have been
+            // reassigned since this one was scheduled.
+            timer.invalidate()
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if FileManager.default.fileExists(atPath: outputURL.path) {
-                    self.outputTimer?.invalidate(); self.outputTimer = nil
-                    self.watchOutputFile()
-                    self.parseOutputFile()
-                }
+                self.outputTimer = nil
+                self.watchOutputFile()
+                self.parseOutputFile()
             }
         }
     }
@@ -254,6 +267,16 @@ final class BriefingViewModel: ObservableObject {
         switch s.stage {
         case "aggregating":         stage = .aggregating
         case "generating_briefing": stage = .generating
+        case "ready":
+            // bridge.py writes latest.json before this stage, so the parse should
+            // succeed; if it's rejected (unreadable/empty briefing) surface an error
+            // instead of spinning on "Genererar…" with the poll running forever.
+            parseOutputFile()
+            if stage != .ready {
+                let sv = UserDefaults.standard.string(forKey: "appLanguage") != "en"
+                stage = .error(sv ? "Kunde inte läsa briefingen." : "Could not read the briefing.")
+                stopStatusPolling()
+            }
         case "error":
             let sv = UserDefaults.standard.string(forKey: "appLanguage") != "en"
             stage = .error(s.error ?? (sv ? "okänt fel" : "unknown error"))

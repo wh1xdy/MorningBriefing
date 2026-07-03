@@ -77,7 +77,14 @@ struct ContentView: View {
         .contentShape(Rectangle())   // keeps the view hit-testable with a clear bg
         .animation(.spring(duration: 0.35, bounce: 0.12), value: showSettings)
         .animation(.spring(duration: 0.5, bounce: 0.10), value: showGreeting)
-        .onAppear { animateIn() }
+        .onAppear {
+            // On the FIRST popover open the hosting view is loaded lazily by
+            // NSPopover *after* AppDelegate posts .mbPopoverWillOpen, so that
+            // notification is dropped — onAppear is the first-open fallback
+            // (same reason animateIn is duplicated here).
+            maybeShowGreeting()
+            animateIn()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .mbPopoverWillOpen)) { _ in
             if showSettings { showSettings = false }
             maybeShowGreeting()
@@ -97,6 +104,10 @@ struct ContentView: View {
         if hour < 12 && lastGreetedDay != today {
             lastGreetedDay = today
             showGreeting = true
+        } else if showGreeting && hour >= 12 {
+            // The transient popover can close (click-away) without the greeting
+            // being dismissed; don't let a morning greeting survive past noon.
+            showGreeting = false
         }
     }
 
@@ -114,15 +125,18 @@ struct ContentView: View {
                 .font(.title3)
                 .foregroundStyle(.secondary)
 
-            if let core = briefingVM.result?.plugins.core?.data {
+            if let core = briefingVM.result?.plugins.core?.data,
+               let ws = core.cheapestWindowStart,
+               let we = core.cheapestWindowEnd,
+               let wa = core.cheapestWindowAvg {
                 Divider().opacity(0.25).frame(width: 150).padding(.vertical, 24)
                 Text(tr("Billigast idag", "Cheapest today"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 HStack(alignment: .firstTextBaseline, spacing: 14) {
-                    Text(String(format: "%02d–%02d", core.cheapestWindowStart, core.cheapestWindowEnd))
+                    Text(String(format: "%02d–%02d", ws, we))
                         .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
-                    Text(String(format: "%.1f öre", core.cheapestWindowAvg))
+                    Text(String(format: "%.1f öre", wa))
                         .font(.title2.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
@@ -329,23 +343,52 @@ struct ContentView: View {
     // MARK: – Freshness + sources footer (#1)
 
     private var briefingFooter: some View {
-        HStack(spacing: 6) {
-            if briefingVM.isOffline {
-                Circle().fill(.orange).frame(width: 6, height: 6)
-                Text(offlineText)
-            } else {
-                Image(systemName: "clock").imageScale(.small)
-                Text(freshnessText)
+        VStack(alignment: .leading, spacing: 4) {
+            // Partial-failure indicator: bridge exits 0 even when a plugin
+            // failed, so the errors dict is the only signal that a card is
+            // missing because its source was unreachable — surface it.
+            if let failed = failedSourcesText {
+                HStack(spacing: 6) {
+                    Circle().fill(.orange).frame(width: 6, height: 6)
+                    Text(failed).lineLimit(1)
+                }
+                .foregroundStyle(.orange)
             }
-            Spacer()
-            Text("Nord Pool · Open-Meteo · Vattenfall")
-                .lineLimit(1)
+            HStack(spacing: 6) {
+                if briefingVM.isOffline {
+                    Circle().fill(.orange).frame(width: 6, height: 6)
+                    Text(offlineText)
+                } else {
+                    Image(systemName: "clock").imageScale(.small)
+                    Text(freshnessText)
+                }
+                Spacer()
+                Text("Nord Pool · Open-Meteo · Vattenfall")
+                    .lineLimit(1)
+            }
+            .foregroundStyle(briefingVM.isOffline ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
         }
         .font(.caption2)
-        .foregroundStyle(briefingVM.isOffline ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
         .padding(.horizontal, 14)
         .padding(.top, 8)
         .padding(.bottom, 10)
+    }
+
+    private var failedSourcesText: String? {
+        guard let errors = briefingVM.result?.errors, !errors.isEmpty else { return nil }
+        let names = errors.keys.sorted().map(sourceDisplayName).joined(separator: ", ")
+        return tr("Delvis data – kunde inte hämta: ", "Partial data – unavailable: ") + names
+    }
+
+    private func sourceDisplayName(_ pluginKey: String) -> String {
+        switch pluginKey {
+        case "elpris":        return tr("elpriser", "spot prices")
+        case "core":          return tr("prisanalys", "price analysis")
+        case "reaktorstatus": return tr("kärnkraftsstatus", "reactor status")
+        case "vader":         return tr("väder", "weather")
+        case "vattenfall":    return "Forsmark"
+        default:              return pluginKey
+        }
     }
 
     private var freshnessText: String {
@@ -366,6 +409,9 @@ struct ContentView: View {
         let parser = ISO8601DateFormatter()
         guard let date = parser.date(from: iso) else { return nil }
         let out = DateFormatter()
+        // Pin the locale: an explicit format string is still rewritten by the
+        // user's 12/24-hour system override unless the locale is POSIX (QA1480).
+        out.locale = Locale(identifier: "en_US_POSIX")
         out.dateFormat = "HH:mm"
         return out.string(from: date)
     }
@@ -470,21 +516,25 @@ struct ContentView: View {
 
     // MARK: – Recommendation card
 
+    @ViewBuilder
     private func recommendationCard(_ core: CoreData) -> some View {
-        infoCard(icon: "clock.badge.checkmark.fill", tint: .green, strokeOpacity: 0.30) {
-            Text(tr("Kör tunga jobb", "Run heavy loads"))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(String(format: "%02d:00 – %02d:00",
-                        core.cheapestWindowStart, core.cheapestWindowEnd))
-                .font(.title3.monospacedDigit().weight(.semibold))
-            Text(String(format: tr("%.1f öre/kWh  (%d%% under dagsnitt)",
-                                    "%.1f öre/kWh  (%d%% below daily avg)"),
-                        core.cheapestWindowAvg,
-                        Int(((core.dailyAvg - core.cheapestWindowAvg)
-                             / max(core.dailyAvg, 0.01)) * 100)))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        // core.py omits the window fields when it can't compute one — no card then.
+        if let ws = core.cheapestWindowStart,
+           let we = core.cheapestWindowEnd,
+           let wa = core.cheapestWindowAvg {
+            infoCard(icon: "clock.badge.checkmark.fill", tint: .green, strokeOpacity: 0.30) {
+                Text(tr("Kör tunga jobb", "Run heavy loads"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(String(format: "%02d:00 – %02d:00", ws, we))
+                    .font(.title3.monospacedDigit().weight(.semibold))
+                Text(String(format: tr("%.1f öre/kWh  (%d%% under dagsnitt)",
+                                        "%.1f öre/kWh  (%d%% below daily avg)"),
+                            wa,
+                            Int(((core.dailyAvg - wa) / max(core.dailyAvg, 0.01)) * 100)))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -665,6 +715,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(chatInput.isEmpty || chatVM.isLoading)
+                .accessibilityLabel(tr("Skicka fråga", "Send question"))
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
         }

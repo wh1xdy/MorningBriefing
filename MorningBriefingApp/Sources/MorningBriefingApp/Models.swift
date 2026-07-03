@@ -29,8 +29,11 @@ struct ElprisData: Codable {
 
 struct CoreData: Codable {
     let recommendation: String
-    let cheapestWindowStart, cheapestWindowEnd: Int
-    let cheapestWindowAvg, dailyAvg: Double
+    // core.py omits the window fields when there is too little price data to
+    // compute one (daily stats and recommendation text are still present).
+    let cheapestWindowStart, cheapestWindowEnd: Int?
+    let cheapestWindowAvg: Double?
+    let dailyAvg: Double
 
     enum CodingKeys: String, CodingKey {
         case recommendation
@@ -134,11 +137,13 @@ struct BriefingPlugins: Codable {
 struct BriefingResult: Codable {
     let briefing:    String
     let generatedAt: String
-    let summaries:   [String]
     let plugins:     BriefingPlugins
+    /// Per-plugin failure messages from the aggregator. Non-empty means the
+    /// run succeeded but some cards are missing their source data.
+    let errors:      [String: String]?
 
     enum CodingKeys: String, CodingKey {
-        case briefing, summaries, plugins
+        case briefing, plugins, errors
         case generatedAt = "generated_at"
     }
 }
