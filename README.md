@@ -71,7 +71,8 @@ A Swift Package targeting macOS 26, built around `NSStatusItem` and a transient
 | File                     | Role                                                              |
 | ------------------------ | ----------------------------------------------------------------- |
 | `AppDelegate.swift`      | Status item, popover lifecycle, wake-from-sleep trigger.          |
-| `ContentView.swift`      | Briefing, chat, settings, and the morning greeting screen.        |
+| `ContentView.swift`      | Briefing, chat, and the morning greeting screen.                  |
+| `SettingsView.swift`     | Settings screen: language picker, model and data-source info.     |
 | `BriefingViewModel.swift`| Runs `bridge.py`, watches `latest.json`, tracks connectivity.     |
 | `ChatViewModel.swift`    | Runs `chat.py` and streams replies.                               |
 | `PriceChartView.swift`   | Hourly price chart with a hover crosshair.                        |
@@ -154,9 +155,15 @@ Two recurring jobs are useful in production:
 - A morning run of `bridge.py` so the briefing is ready when you wake.
 - A nightly run of `cron_patch.py` to backfill actual prices into the log.
 
-`com.alexanderwh.morningbriefing.plist` is a launchd template for this. Adjust
-the absolute paths to your checkout and copy it into `~/Library/LaunchAgents/`,
-then load it with `launchctl load`.
+`com.alexanderwh.morningbriefing.cronpatch.plist` is a launchd template for the
+nightly job only. Adjust the absolute paths to your checkout, copy it into
+`~/Library/LaunchAgents/`, then load it with `launchctl load`.
+
+For the morning run, make a second copy of the template: change the `Label` to
+`com.alexanderwh.morningbriefing.bridge`, point `ProgramArguments` at
+`bridge.py` with `--language sv` (or `en`), and set `StartCalendarInterval` to
+a time shortly before you wake. Save it as
+`com.alexanderwh.morningbriefing.bridge.plist` and load it the same way.
 
 ## Configuration
 

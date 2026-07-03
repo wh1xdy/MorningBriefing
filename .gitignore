@@ -17,5 +17,5 @@ xcuserdata/
 # macOS
 .DS_Store
 
-# Local data
-~/.morningbriefing/
+# Runtime state (latest.json, status.json, log.jsonl) lives outside the
+# repo in ~/.morningbriefing/, so it never needs ignoring here.

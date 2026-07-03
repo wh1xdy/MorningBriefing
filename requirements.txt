@@ -1,5 +1,7 @@
 # Data plugins
 requests>=2.31
 
-# Local inference on Apple silicon (pulls in mlx and transformers)
-mlx-lm>=0.18
+# Local inference on Apple silicon (pulls in mlx and transformers).
+# 0.20 is the floor for the sampler API used here: make_sampler,
+# make_logits_processors, and stream_generate yielding GenerationResponse.
+mlx-lm>=0.20
