@@ -31,6 +31,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if Bundle.main.bundleIdentifier != nil {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
+
+        // Belt-and-suspenders dismissal: transient popovers rely on NSPopover's
+        // own event monitors, which can stop firing while a system alert (e.g.
+        // the notification-permission prompt) is attached to the app. Closing on
+        // app deactivation guarantees a click into any other app dismisses it.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self, self.popover?.isShown == true else { return }
+            self.popover.close()
+        }
     }
 
     // MARK: – Status item
@@ -121,6 +133,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             guard let self, let btn = self.statusItem.button else { return }
             NotificationCenter.default.post(name: .mbPopoverWillOpen, object: nil)
+            // Without activation, transient click-outside dismissal doesn't work
+            // for an .accessory app — the popover would linger until clicked.
+            NSApp.activate(ignoringOtherApps: true)
             self.popover.show(relativeTo: btn.bounds, of: btn, preferredEdge: .minY)
         }
     }
