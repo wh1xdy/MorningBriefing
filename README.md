@@ -2,9 +2,10 @@
 
 A macOS menu bar app that gives you a daily briefing on the Nordic electricity
 market: SE3 spot prices, the cheapest hours to run heavy loads, nuclear plant
-status, live Forsmark production, and Stockholm weather. The briefing text and
-the in-app chat are generated locally by a quantized Mistral 7B model running on
-Apple MLX, so no market data or questions leave the machine.
+status, live Forsmark production, and Stockholm weather. The briefing text is
+composed deterministically from the data; the in-app chat is answered locally
+by a quantized Mistral 7B model running on Apple MLX. No market data or
+questions leave the machine.
 
 The app targets a single user who wants to know, at a glance each morning, when
 power is cheap and what is moving the price.
@@ -19,7 +20,7 @@ Public APIs
      |
      v
   plugins/    ->  aggregator.py  ->  inference.py  ->  ~/.morningbriefing/latest.json
-  (fetch)         (run parallel)     (MLX briefing)              |
+  (fetch)         (run parallel)     (compose text)              |
                                                                  |  file watched
                                                                  v
                                               MorningBriefingApp menu bar popover
@@ -28,10 +29,13 @@ Public APIs
 1. Each plugin in `plugins/` fetches one slice of data from a public API.
 2. `aggregator.py` runs the plugins in parallel and isolates failures, so one
    dead API degrades the briefing rather than breaking it.
-3. `inference.py` turns the aggregated facts into a short Swedish or English
-   briefing using the local model. The actionable recommendation line is
-   appended deterministically from the data rather than generated, because a 7B
-   model is not reliable at repeating exact figures.
+3. `inference.py` composes a short Swedish or English briefing from the
+   aggregated facts using templates: price level and daily shape, nuclear
+   outages, tomorrow's direction, wind, and the run-heavy-loads
+   recommendation. It is deterministic on purpose — an earlier version
+   generated the text with the local model, which was slow every morning and
+   occasionally misread planned outages as permanent shutdowns. The model is
+   reserved for chat, where open-ended interpretation earns its latency.
 4. `bridge.py` ties the pipeline together and writes the result to
    `~/.morningbriefing/latest.json`.
 5. The Swift app watches that file and renders the briefing, a price chart, and
@@ -58,8 +62,8 @@ an outage message. Scraping Vattenfall's public production page fills that gap.
 | File                | Role                                                                          |
 | ------------------- | ----------------------------------------------------------------------------- |
 | `aggregator.py`     | Runs all plugins in parallel and returns a combined payload.                  |
-| `inference.py`      | Generates the briefing text with the local MLX model (Swedish or English).    |
-| `chat.py`           | Answers follow-up questions, grounded in the current briefing data.           |
+| `inference.py`      | Composes the briefing text from the data (deterministic, Swedish or English). |
+| `chat.py`           | Answers follow-up questions with the local MLX model, grounded in the data.   |
 | `bridge.py`         | Full pipeline entry point; writes `latest.json` and a status file.            |
 | `cron_patch.py`     | Nightly job that backfills the log with the day's actual prices.              |
 
@@ -86,12 +90,12 @@ fully localized in Swedish and English.
 - macOS 26 or later (required for the Liquid Glass APIs).
 - A Swift toolchain (Xcode 26 or the matching command-line tools).
 - Python 3.11 or later. Developed and run on Python 3.14.
-- Roughly 4 GB of disk for the model, which downloads on first inference.
+- Roughly 4 GB of disk for the chat model, which downloads on first use.
 
 Python dependencies are listed in `requirements.txt`:
 
 - `requests` for the data plugins.
-- `mlx-lm` for local inference on Apple silicon.
+- `mlx-lm` for local chat inference on Apple silicon.
 
 ## Setup
 
@@ -111,17 +115,19 @@ pip install -r requirements.txt
 .venv/bin/python bridge.py --language sv      # or --language en
 ```
 
-This loads the Mistral model and runs full inference. It is the only command
-that uses significant CPU and GPU. The result is written to
-`~/.morningbriefing/latest.json`.
+This fetches all sources, composes the briefing, and writes the result to
+`~/.morningbriefing/latest.json`. It completes in a few seconds — the language
+model is not involved.
 
-### Develop the UI without the model
+### Refresh data during UI work
 
-To refresh the data and write a templated briefing without loading the model,
-use the fixture injector. This is the fast path for working on the Swift app.
+The fixture injector runs the same plugins and composer but skips the log
+append and status-file choreography. Useful for quick iteration, or to force
+a specific briefing text:
 
 ```sh
 .venv/bin/python scripts/inject_fixture.py
+.venv/bin/python scripts/inject_fixture.py --briefing "Custom text."
 ```
 
 ### Ask a question
@@ -129,6 +135,9 @@ use the fixture injector. This is the fast path for working on the Swift app.
 ```sh
 .venv/bin/python chat.py --question "Varför är priset högt ikväll?" --language sv
 ```
+
+This is the only command that loads the Mistral model (and the only heavy
+CPU/GPU user).
 
 ### Build and run the app
 
@@ -177,7 +186,8 @@ a time shortly before you wake. Save it as
 - Nord Pool Day-Ahead prices and Urgent Market Messages.
 - Open-Meteo weather.
 - Vattenfall Forsmark production data.
-- Mistral 7B Instruct v0.3 (4-bit), run locally via the MLX community build.
+- Mistral 7B Instruct v0.3 (4-bit), run locally via the MLX community build
+  (chat only).
 
 ## Project layout
 
@@ -185,12 +195,12 @@ a time shortly before you wake. Save it as
 MorningBriefing/
 ├── plugins/              Data fetchers, one per source
 ├── aggregator.py         Parallel plugin runner
-├── inference.py          Local MLX briefing generation
-├── chat.py               Grounded question answering
+├── inference.py          Deterministic briefing composer
+├── chat.py               Grounded question answering (local MLX model)
 ├── bridge.py             Full pipeline entry point
 ├── cron_patch.py         Nightly price backfill
 ├── scripts/
-│   ├── inject_fixture.py Refresh data without the model
+│   ├── inject_fixture.py Quick data refresh (no log or status files)
 │   └── test_all.py       Unit and live tests
 └── MorningBriefingApp/   SwiftUI menu bar app
 ```

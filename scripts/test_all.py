@@ -253,6 +253,80 @@ def _():
         assert roles[i] != roles[i+1], f"Consecutive same roles at {i}: {roles}"
 
 
+# ─── inference.py (deterministic composer) ───────────────────────────────────
+
+def _composer_payload() -> dict:
+    prices = [{"hour": h, "price_ore_kwh": 30.0} for h in range(24)]
+    prices[15]["price_ore_kwh"] = 18.0   # cheap afternoon
+    prices[20]["price_ore_kwh"] = 63.0   # expensive evening
+    return {"plugins": {
+        "elpris": {"summary": "", "data": {
+            "date": "2026-07-03", "prices": prices,
+            "avg_price": 31.5, "min_price": 18.0, "max_price": 63.0,
+            "tomorrow_prices": [{"hour": h, "price_ore_kwh": 20.0} for h in range(24)],
+        }},
+        "core": {"summary": "", "data": {
+            "cheapest_window_start": 14, "cheapest_window_end": 18,
+            "cheapest_window_avg": 20.1, "daily_avg": 31.5,
+        }},
+        "reaktorstatus": {"summary": "", "data": {
+            "count": 2, "plants": ["Forsmark Block 2", "Ringhals Block 3"],
+            "total_unavail_mw": 1081,
+            "upcoming_count": 7,
+            "upcoming_plants": ["Forsmark Block 1", "Forsmark Block 3", "Loviisa Block 1",
+                                "Loviisa Block 2", "Oskarshamn Block 3", "Ringhals Block 3",
+                                "Ringhals Block 4"],
+            "upcoming_umms": [{"plant": "Forsmark Block 3", "event_start": "2026-07-04T22:00:00Z"},
+                              {"plant": "Loviisa Block 1", "event_start": "2026-09-25T22:00:00Z"}],
+            "active_umms": [],
+        }},
+        "vader": {"summary": "", "data": {"daily_avg_wind_ms": 3.8}},
+    }}
+
+
+@test("inference: composed briefing is bounded and carries the recommendation")
+def _():
+    from inference import generate_briefing, MAX_SENTENCES
+    text = generate_briefing(_composer_payload(), language="sv")
+    assert "Kör tunga jobb 14:00–18:00" in text, f"missing recommendation: {text}"
+    # Sentence cap: MAX_SENTENCES + the recommendation. Count terminators.
+    n = text.count(". ") + 1
+    assert n <= MAX_SENTENCES + 1, f"too many sentences ({n}): {text}"
+    # The pagination regression: upcoming outages must be ONE aggregated
+    # sentence, never one per plant.
+    assert text.count("planerade avbrott") <= 1, f"per-plant upcoming spam: {text}"
+    assert "avslutas permanent" not in text
+    assert "7 reaktorer" in text, f"upcoming not aggregated: {text}"
+
+
+@test("inference: Swedish prose uses decimal commas, English uses points")
+def _():
+    from inference import generate_briefing
+    sv = generate_briefing(_composer_payload(), language="sv")
+    en = generate_briefing(_composer_payload(), language="en")
+    assert "20,1 öre/kWh" in sv, f"sv should use comma: {sv}"
+    assert "20.1 öre/kWh" in en, f"en should use point: {en}"
+
+
+@test("inference: failed reaktorstatus reads as unknown, not all-clear")
+def _():
+    from inference import generate_briefing
+    payload = _composer_payload()
+    payload["plugins"]["reaktorstatus"] = {"plugin": "reaktorstatus",
+                                           "error": "boom", "summary": "[failed]", "data": {}}
+    text = generate_briefing(payload, language="sv")
+    assert "okänt" in text, f"failed plugin must read as unknown: {text}"
+    assert "Inga nukleära" not in text
+
+
+@test("inference: empty payload degrades to a quiet fallback, never raises")
+def _():
+    from inference import generate_briefing
+    text = generate_briefing({}, language="sv")
+    assert text, "empty payload must still produce text"
+    assert "kunde inte hämtas" in text
+
+
 # ─── Models JSON decode (Swift-facing shapes) ─────────────────────────────────
 
 @test("models: BriefingResult JSON round-trip")

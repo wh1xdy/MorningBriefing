@@ -200,25 +200,28 @@ struct ContentView: View {
                 .frame(width: 16, height: 16)
             Text("MorningBriefing")
                 .font(.system(.subheadline, weight: .semibold))
+                .lineLimit(1)
+                .layoutPriority(1)   // the title must never wrap or truncate before the status text does
 
             Spacer()
 
-            // Status cluster
-            HStack(spacing: 4) {
-                if let avg = briefingVM.result?.plugins.elpris?.data?.avgPrice {
+            // Status slot — exactly one occupant at a time. The spinner
+            // *replaces* the average text during a refresh (the number is
+            // about to be stale anyway); side by side they overflow the
+            // 340pt header and wrap the title.
+            ZStack {
+                if briefingVM.stage == .aggregating || briefingVM.stage == .generating {
+                    ProgressView().controlSize(.mini)
+                } else if case .error = briefingVM.stage {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .imageScale(.small)
+                        .foregroundStyle(.red.opacity(0.8))
+                        .help(briefingVM.stage.label)
+                } else if let avg = briefingVM.result?.plugins.elpris?.data?.avgPrice {
                     Text(String(format: tr("snitt %.0f öre", "avg %.0f öre"), avg))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
-                }
-                Group {
-                    if briefingVM.stage == .aggregating || briefingVM.stage == .generating {
-                        ProgressView().scaleEffect(0.55).frame(width: 12, height: 12)
-                    } else if case .error = briefingVM.stage {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .imageScale(.small)
-                            .foregroundStyle(.red.opacity(0.8))
-                            .help(briefingVM.stage.label)
-                    }
+                        .lineLimit(1)
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: briefingVM.stage == .ready)

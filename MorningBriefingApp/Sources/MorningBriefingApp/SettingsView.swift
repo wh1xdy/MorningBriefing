@@ -79,7 +79,7 @@ struct SettingsView: View {
                         icon: "cpu",
                         color: .purple,
                         name: "Mistral 7B Instruct v0.3",
-                        detail: language == "sv" ? "Lokal MLX-inferens" : "Local MLX inference",
+                        detail: language == "sv" ? "Chatt – lokal MLX-inferens" : "Chat – local MLX inference",
                         url: "mlx-community (4-bit)"
                     )
 
