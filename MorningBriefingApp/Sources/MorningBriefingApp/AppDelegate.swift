@@ -6,12 +6,13 @@ extension Notification.Name {
     static let mbPopoverWillOpen = Notification.Name("MBPopoverWillOpen")
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private var popover:    NSPopover!
     private var briefingVM: BriefingViewModel!
     private var chatVM:     ChatViewModel!
     private var appNapToken: NSObjectProtocol?
+    private var popoverLastClosed: Date = .distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         appNapToken = ProcessInfo.processInfo.beginActivity(
@@ -74,12 +75,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // doesn't leave dead space at the bottom (width stays pinned at 340).
         host.sizingOptions = [.preferredContentSize]
         popover.contentViewController = host
+        popover.delegate = self
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        popoverLastClosed = Date()
     }
 
     @objc private func statusItemClicked() {
         guard let btn = statusItem.button else { return }
         if popover.isShown {
             popover.close()
+        } else if Date().timeIntervalSince(popoverLastClosed) < 0.3 {
+            // Clicking the status item while the popover is open dismisses it
+            // TWICE: the transient behavior closes it on mouse-down (the click
+            // is "outside"), then this action fires on mouse-up, sees a closed
+            // popover, and would reopen it — making the dismissal click look
+            // ignored. If it closed a moment ago, this click WAS the dismissal.
+            return
         } else {
             NotificationCenter.default.post(name: .mbPopoverWillOpen, object: nil)
             MainActor.assumeIsolated { briefingVM.refreshIfStale() }
