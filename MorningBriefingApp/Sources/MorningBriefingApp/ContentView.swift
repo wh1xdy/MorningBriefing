@@ -46,7 +46,9 @@ struct ContentView: View {
     @State private var showSettings: Bool   = false
     @State private var chatInput:    String = ""
     @State private var briefingScrollHeight: CGFloat = 380   // measured from content (#2)
+    @State private var briefingOverflows: Bool = false        // content taller than the 460 clamp
     @State private var showGreeting: Bool = false
+    @State private var greetingOpacity: Double = 1
     @FocusState private var chatFocused: Bool
     @AppStorage("appLanguage")   private var language: String = "sv"
     @AppStorage("lastGreetedDay") private var lastGreetedDay: String = ""   // yyyy-MM-dd
@@ -63,6 +65,7 @@ struct ContentView: View {
 
             if showGreeting {
                 greetingView
+                    .opacity(greetingOpacity)
                     .transition(.opacity.combined(with: .scale(scale: 1.03, anchor: .center)))
             } else if showSettings {
                 SettingsView(isShowing: $showSettings)
@@ -112,7 +115,14 @@ struct ContentView: View {
     }
 
     private func dismissGreeting() {
-        withAnimation(.spring(duration: 0.5, bounce: 0.10)) { showGreeting = false }
+        // Two-phase: fade the greeting out first, THEN let the popover width
+        // snap 380→340 — animating both at once reads as a container morph
+        // that undercuts the calm the greeting is there to create.
+        withAnimation(.easeOut(duration: 0.22)) { greetingOpacity = 0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            withAnimation(.spring(duration: 0.5, bounce: 0.10)) { showGreeting = false }
+            greetingOpacity = 1
+        }
     }
 
     private var greetingView: some View {
@@ -217,7 +227,10 @@ struct ContentView: View {
                         .imageScale(.small)
                         .foregroundStyle(.red.opacity(0.8))
                         .help(briefingVM.stage.label)
-                } else if let avg = briefingVM.result?.plugins.elpris?.data?.avgPrice {
+                } else if mode == .chat, let avg = briefingVM.result?.plugins.elpris?.data?.avgPrice {
+                    // Only in chat mode — in briefing mode the stat pills own
+                    // this number, and a third copy in the header (with its own
+                    // rounding) forced a pre-coffee reconciliation.
                     Text(String(format: tr("snitt %.0f öre", "avg %.0f öre"), avg))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
@@ -228,16 +241,21 @@ struct ContentView: View {
 
             // Controls
             headerButton(icon: mode == .briefing ? "bubble.left" : "doc.text",
-                         help: mode == .briefing ? tr("Öppna chat", "Open chat")
-                                                 : tr("Visa briefing", "Show briefing")) {
+                         help: mode == .briefing ? tr("Öppna chat (⌘K)", "Open chat (⌘K)")
+                                                 : tr("Visa briefing (⌘K)", "Show briefing (⌘K)"),
+                         shortcut: "k") {
                 withAnimation(.spring(duration: 0.3, bounce: 0.15)) {
                     mode = mode == .briefing ? .chat : .briefing
                 }
             }
-            headerButton(icon: "arrow.clockwise", help: tr("Uppdatera briefing", "Refresh briefing")) {
+            headerButton(icon: "arrow.clockwise",
+                         help: tr("Uppdatera briefing (⌘R)", "Refresh briefing (⌘R)"),
+                         shortcut: "r") {
                 briefingVM.triggerBriefing()
             }
-            headerButton(icon: "gearshape", help: tr("Inställningar", "Settings")) {
+            headerButton(icon: "gearshape",
+                         help: tr("Inställningar (⌘,)", "Settings (⌘,)"),
+                         shortcut: ",") {
                 withAnimation(.spring(duration: 0.35, bounce: 0.12)) { showSettings = true }
             }
         }
@@ -245,8 +263,10 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func headerButton(icon: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func headerButton(icon: String, help: String,
+                              shortcut: KeyEquivalent? = nil,
+                              action: @escaping () -> Void) -> some View {
+        let button = Button(action: action) {
             Image(systemName: icon)
                 .imageScale(.small)
                 .frame(width: 26, height: 26)
@@ -254,6 +274,13 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel(help)
+
+        if let key = shortcut {
+            button.keyboardShortcut(key, modifiers: .command)
+        } else {
+            button
+        }
     }
 
     // MARK: – Content area (briefing / chat)
@@ -330,6 +357,18 @@ struct ContentView: View {
             }
             .frame(height: briefingScrollHeight)
             .scrollIndicators(.hidden)
+            // Fade the clipped edge when cards continue below — with hidden
+            // scroll indicators this is the only cue that there is a fold.
+            .mask(
+                VStack(spacing: 0) {
+                    Rectangle()
+                    if briefingOverflows {
+                        LinearGradient(colors: [.black, .clear],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: 18)
+                    }
+                }
+            )
 
             briefingFooter
                 .fadeFromTop(appeared, delay: 0.26)
@@ -340,6 +379,7 @@ struct ContentView: View {
         // Clamp the scroll area: never a dead gap below short content, cap tall
         // briefings at 460 so the popover stays usable and the rest scrolls.
         let clamped = min(max(contentHeight, 80), 460)
+        briefingOverflows = contentHeight > 460.5
         if abs(clamped - briefingScrollHeight) > 0.5 { briefingScrollHeight = clamped }
     }
 
@@ -396,27 +436,38 @@ struct ContentView: View {
 
     private var freshnessText: String {
         guard let iso = briefingVM.result?.generatedAt,
-              let clock = Self.clockString(fromISO: iso)
+              let stamp = Self.freshnessStamp(fromISO: iso, sv: language == "sv")
         else { return language == "sv" ? "Ingen data än" : "No data yet" }
-        return (language == "sv" ? "Uppdaterad " : "Updated ") + clock
+        return (language == "sv" ? "Uppdaterad " : "Updated ") + stamp
     }
 
     private var offlineText: String {
-        if let iso = briefingVM.result?.generatedAt, let clock = Self.clockString(fromISO: iso) {
-            return (language == "sv" ? "Offline · data från " : "Offline · data from ") + clock
+        if let iso = briefingVM.result?.generatedAt,
+           let stamp = Self.freshnessStamp(fromISO: iso, sv: language == "sv") {
+            return (language == "sv" ? "Offline · data från " : "Offline · data from ") + stamp
         }
         return "Offline"
     }
 
-    private static func clockString(fromISO iso: String) -> String? {
+    /// "07:12" today, "igår 23:13" yesterday, "3 juli 23:13" beyond — a bare
+    /// clock read at 07:30 makes last night's run look like this morning's.
+    private static func freshnessStamp(fromISO iso: String, sv: Bool) -> String? {
         let parser = ISO8601DateFormatter()
         guard let date = parser.date(from: iso) else { return nil }
-        let out = DateFormatter()
+        let clock = DateFormatter()
         // Pin the locale: an explicit format string is still rewritten by the
         // user's 12/24-hour system override unless the locale is POSIX (QA1480).
-        out.locale = Locale(identifier: "en_US_POSIX")
-        out.dateFormat = "HH:mm"
-        return out.string(from: date)
+        clock.locale = Locale(identifier: "en_US_POSIX")
+        clock.dateFormat = "HH:mm"
+        let time = clock.string(from: date)
+
+        let cal = Calendar.current
+        if cal.isDateInToday(date) { return time }
+        if cal.isDateInYesterday(date) { return (sv ? "igår " : "yesterday ") + time }
+        let day = DateFormatter()
+        day.locale = Locale(identifier: sv ? "sv_SE" : "en_US")
+        day.dateFormat = sv ? "d MMMM" : "MMMM d"
+        return day.string(from: date) + " " + time
     }
 
     @ViewBuilder
@@ -424,6 +475,7 @@ struct ContentView: View {
         if let text = briefingVM.result?.briefing {
             AnimatedBriefingText(text: text)
                 .id(openToken)
+                .textSelection(.enabled)
         } else {
             let isError: Bool = { if case .error = briefingVM.stage { return true }; return false }()
             VStack(alignment: .leading, spacing: 10) {
@@ -529,10 +581,10 @@ struct ContentView: View {
                 Text(tr("Kör tunga jobb", "Run heavy loads"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                Text(String(format: "%02d:00 – %02d:00", ws, we))
+                Text(String(format: "%02d:00–%02d:00", ws, we))
                     .font(.title3.monospacedDigit().weight(.semibold))
-                Text(String(format: tr("%.1f öre/kWh  (%d%% under dagsnitt)",
-                                        "%.1f öre/kWh  (%d%% below daily avg)"),
+                Text(String(format: tr("%.1f öre/kWh (%d%% under dagsnitt)",
+                                        "%.1f öre/kWh (%d%% below daily avg)"),
                             wa,
                             Int(((core.dailyAvg - wa) / max(core.dailyAvg, 0.01)) * 100)))
                     .font(.caption)
@@ -642,14 +694,8 @@ struct ContentView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
-                        if chatVM.messages.isEmpty && !chatVM.isLoading {
-                            Text(tr("Ställ en fråga om elmarknaden eller dagens briefing.",
-                                    "Ask about the electricity market or today's briefing."))
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 14)
-                                .padding(.top, 12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                        if chatIsEmpty {
+                            chatEmptyState
                         }
 
                         ForEach(chatVM.messages) { msg in
@@ -683,7 +729,10 @@ struct ContentView: View {
                     }
                     .padding(.vertical, 10)
                 }
-                .frame(height: 440)   // fixed: chat is a conversation, not content-sized (#2)
+                // A conversation gets full height; the empty state is compact so
+                // toggling modes doesn't jump the popover through a 440pt void.
+                .frame(height: chatIsEmpty ? 250 : 440)
+                .animation(.spring(duration: 0.35, bounce: 0.1), value: chatIsEmpty)
                 .defaultScrollAnchor(.bottom)   // grow from the bottom, iMessage-style — no top void
                 .scrollIndicators(.hidden)
                 .onChange(of: chatVM.messages.count) { _, _ in
@@ -707,21 +756,72 @@ struct ContentView: View {
                     .focused($chatFocused)
                     .onSubmit { submitChat() }
 
-                Button(action: submitChat) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(
-                            chatInput.isEmpty
-                                ? AnyShapeStyle(.tertiary)
-                                : AnyShapeStyle(Color.accentColor)
-                        )
+                // While the model is generating the button becomes a stop —
+                // a 7B generation can be a long, otherwise locked-in wait.
+                if chatVM.isLoading {
+                    Button(action: chatVM.cancel) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .help(tr("Avbryt svar", "Stop response"))
+                    .accessibilityLabel(tr("Avbryt svar", "Stop response"))
+                } else {
+                    Button(action: submitChat) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(
+                                chatInput.isEmpty
+                                    ? AnyShapeStyle(.tertiary)
+                                    : AnyShapeStyle(Color.accentColor)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(chatInput.isEmpty)
+                    .accessibilityLabel(tr("Skicka fråga", "Send question"))
                 }
-                .buttonStyle(.plain)
-                .disabled(chatInput.isEmpty || chatVM.isLoading)
-                .accessibilityLabel(tr("Skicka fråga", "Send question"))
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
         }
+    }
+
+    private var chatIsEmpty: Bool {
+        chatVM.messages.isEmpty && !chatVM.isLoading && chatVM.error == nil
+    }
+
+    /// Empty state that teaches: tappable starter questions instead of a void.
+    private var chatEmptyState: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(tr("Ställ en fråga om elmarknaden eller dagens briefing.",
+                    "Ask about the electricity market or today's briefing."))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(chatSuggestions, id: \.self) { q in
+                    Button { chatVM.send(q) } label: {
+                        Text(q)
+                            .font(.callout)
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .background(Color.primary.opacity(0.06), in: Capsule())
+                            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var chatSuggestions: [String] {
+        [
+            tr("Varför är priset högt ikväll?", "Why is the price high tonight?"),
+            tr("När ska jag ladda bilen?", "When should I charge the car?"),
+            tr("Vad händer med kärnkraften?", "What's happening with the nuclear fleet?"),
+        ]
     }
 
     @ViewBuilder
@@ -731,6 +831,7 @@ struct ContentView: View {
                 Spacer(minLength: 40)
                 Text(msg.text)
                     .font(.body)
+                    .textSelection(.enabled)
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(Color.accentColor.opacity(0.18), in: RoundedRectangle(cornerRadius: 16))
                     .overlay(
@@ -749,6 +850,7 @@ struct ContentView: View {
         HStack(alignment: .top) {
             Text(text)
                 .font(.body)
+                .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 .glassCard(cornerRadius: 16)

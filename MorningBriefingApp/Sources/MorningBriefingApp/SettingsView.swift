@@ -1,8 +1,21 @@
 import SwiftUI
+import AppKit
+import ServiceManagement
 
 struct SettingsView: View {
     @Binding var isShowing: Bool
     @AppStorage("appLanguage") private var language: String = "sv"
+    @AppStorage("priceAlertsEnabled") private var priceAlertsEnabled: Bool = true
+    @State private var launchAtLogin: Bool = SettingsView.isRegisteredAtLogin
+
+    /// Login-item registration only exists for a real .app bundle; the bare
+    /// SPM debug binary has no bundle identifier to register.
+    private static var isBundled: Bool { Bundle.main.bundleIdentifier != nil }
+
+    private static var isRegisteredAtLogin: Bool {
+        guard isBundled else { return false }
+        return SMAppService.mainApp.status == .enabled
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -69,6 +82,13 @@ struct SettingsView: View {
                         url: "ummapi.nordpoolgroup.com"
                     )
                     sourceRow(
+                        icon: "building.2.fill",
+                        color: .indigo,
+                        name: "Vattenfall",
+                        detail: language == "sv" ? "Forsmark F1–F3, live produktion" : "Forsmark F1–F3, live output",
+                        url: "karnkraft.vattenfall.se"
+                    )
+                    sourceRow(
                         icon: "cloud.sun.fill",
                         color: .teal,
                         name: "Open-Meteo",
@@ -85,9 +105,58 @@ struct SettingsView: View {
 
                     sectionHeader(language == "sv" ? "APP" : "APPLICATION")
 
-                    // Quit
+                    // Price alerts (delivery requires the bundled .app;
+                    // BriefingViewModel gates the actual scheduling)
+                    settingRow {
+                        HStack(spacing: 12) {
+                            iconTile("bell.badge", color: .green)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(language == "sv" ? "Prisavisering" : "Price alert")
+                                    .font(.body)
+                                Text(language == "sv" ? "När billigaste fönstret börjar"
+                                                      : "When the cheapest window starts")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Toggle("", isOn: $priceAlertsEnabled)
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
+                                .labelsHidden()
+                        }
+                    }
+
+                    if Self.isBundled {
+                        settingRow {
+                            HStack(spacing: 12) {
+                                iconTile("arrow.up.forward.app", color: .blue)
+                                Text(language == "sv" ? "Starta vid inloggning" : "Launch at login")
+                                    .font(.body)
+                                Spacer()
+                                Toggle("", isOn: $launchAtLogin)
+                                    .toggleStyle(.switch)
+                                    .controlSize(.small)
+                                    .labelsHidden()
+                                    .onChange(of: launchAtLogin) { _, enable in
+                                        do {
+                                            if enable { try SMAppService.mainApp.register() }
+                                            else      { try SMAppService.mainApp.unregister() }
+                                        } catch {
+                                            launchAtLogin = Self.isRegisteredAtLogin
+                                        }
+                                    }
+                            }
+                        }
+                    }
+
+                    // Quit — no chevron: this is an action, not navigation
                     Button {
-                        exit(0)
+                        if Self.isBundled {
+                            NSApp.terminate(nil)
+                        } else {
+                            // NSApplication.terminate is silently swallowed in a
+                            // bare SPM binary without a bundle.
+                            exit(0)
+                        }
                     } label: {
                         settingRowContent {
                             HStack(spacing: 12) {
@@ -96,9 +165,6 @@ struct SettingsView: View {
                                     .font(.body)
                                     .foregroundStyle(.red)
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .imageScale(.small)
-                                    .foregroundStyle(.tertiary)
                             }
                         }
                     }
@@ -144,28 +210,28 @@ struct SettingsView: View {
             HStack(spacing: 12) {
                 iconTile(icon, color: color)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(name).font(.callout.weight(.medium))
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                    Text(name).font(.callout.weight(.medium)).lineLimit(1)
+                    Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
-                Text(url)
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
             }
         }
+        // The endpoint lives in a tooltip — inline it crowded the row until
+        // the source names wrapped.
+        .help(url)
         .padding(.top, 1)
     }
 
     @ViewBuilder
     private func iconTile(_ systemName: String, color: Color) -> some View {
+        // Tinted, not saturated — filled iOS-style tiles made Settings the
+        // loudest screen in the app.
         ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(color)
+            RoundedRectangle(cornerRadius: 6).fill(color.opacity(0.16))
                 .frame(width: 28, height: 28)
             Image(systemName: systemName)
                 .imageScale(.small)
-                .foregroundStyle(.white)
+                .foregroundStyle(color)
         }
     }
 }

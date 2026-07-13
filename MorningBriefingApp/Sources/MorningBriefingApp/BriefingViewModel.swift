@@ -188,6 +188,43 @@ final class BriefingViewModel: ObservableObject {
         if isFirstToday {
             postBriefingReadyNotification(decoded)
         }
+        schedulePriceAlert(decoded)
+    }
+
+    // MARK: – Price alert
+
+    /// Local notification at the start of today's cheapest window. Uses a fixed
+    /// identifier so a re-parse replaces the pending request instead of stacking
+    /// duplicates; a window already underway schedules nothing.
+    private func schedulePriceAlert(_ r: BriefingResult) {
+        guard Bundle.main.bundleIdentifier != nil else { return }   // notifications need a real bundle
+        let defaults = UserDefaults.standard
+        let enabled = defaults.object(forKey: "priceAlertsEnabled") as? Bool ?? true
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["mb.cheapWindow"])
+        guard enabled,
+              let core = r.plugins.core?.data,
+              let start = core.cheapestWindowStart,
+              let end = core.cheapestWindowEnd,
+              let avg = core.cheapestWindowAvg else { return }
+
+        var comps = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        comps.hour = start
+        comps.minute = 0
+        guard let fireDate = Calendar.current.date(from: comps), fireDate > Date() else { return }
+
+        let sv = defaults.string(forKey: "appLanguage") != "en"
+        let price = String(format: "%.1f", avg)
+            .replacingOccurrences(of: ".", with: sv ? "," : ".")
+        let until = String(format: "%02d:00", end)
+        let content = UNMutableNotificationContent()
+        content.title = sv ? "Billigaste fönstret börjar nu" : "Cheapest window starts now"
+        content.body  = sv ? "Kör tunga jobb till \(until) – \(price) öre/kWh."
+                           : "Run heavy loads until \(until) – \(price) öre/kWh."
+        content.sound = .default
+        let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+        center.add(UNNotificationRequest(identifier: "mb.cheapWindow",
+                                         content: content, trigger: trigger)) { _ in }
     }
 
     // MARK: – Price badge (60-second tick)

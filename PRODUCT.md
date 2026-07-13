@@ -37,10 +37,14 @@ minimalistic". Bilingual (Swedish first, English equal).
 2. Native material over decoration: let Liquid Glass and system typography work.
 3. Degrade quietly: a failed data source dims or annotates; it never shouts.
 4. Same voice in both languages: sv/en parity in every label and state.
-5. Motion confirms, never performs: short springs on open, nothing looping.
+5. Motion is part of the product's identity — deliberate, by owner decision:
+   the entrance choreography replays on every open, the sentence-by-sentence
+   text reveal stays, and the chart's live pulse loops. Do not "optimize"
+   these away or gate them behind Reduce Motion; the daily ritual is the point.
 
 ## Accessibility & Inclusion
 
 Standard macOS expectations: VoiceOver labels on icon-only controls, keyboard
-access to chat input, WCAG AA contrast against the glass material, respects
-system reduced-motion where feasible.
+access to chat input, WCAG AA contrast against the glass material. The signature
+motion (entrance choreography, looping pulse) intentionally does not yield to
+Reduce Motion — single-user app, owner's explicit preference.

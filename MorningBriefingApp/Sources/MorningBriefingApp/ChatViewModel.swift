@@ -19,8 +19,20 @@ final class ChatViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
 
+    private var currentTask: Process?
+    private var cancelRequested = false
+
+    /// Stop an in-flight generation. Any partial answer already streamed is
+    /// kept as the assistant message rather than discarded.
+    func cancel() {
+        cancelRequested = true
+        currentTask?.terminate()
+    }
+
     func send(_ question: String) {
         guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !isLoading else { return }   // suggestion taps could double-fire
+        cancelRequested = false
 
         // Build history from complete user/assistant pairs only.
         // This guarantees strict alternation and prevents the MLX
@@ -100,8 +112,17 @@ final class ChatViewModel: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.isLoading = false
+                self.currentTask = nil
                 let sv = UserDefaults.standard.string(forKey: "appLanguage") != "en"
-                if p.terminationStatus != 0 {
+                if self.cancelRequested {
+                    // User stopped the generation — keep whatever streamed,
+                    // no error theater for a deliberate action.
+                    let partial = outText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !partial.isEmpty {
+                        self.messages.append(ChatMessage(role: .assistant, text: partial + " …"))
+                    }
+                    self.streamingText = ""
+                } else if p.terminationStatus != 0 {
                     let stderr = errText.trimmingCharacters(in: .whitespacesAndNewlines)
                     self.error = stderr.isEmpty ? (sv ? "Okänt fel" : "Unknown error") : stderr
                     self.streamingText = ""
@@ -114,9 +135,11 @@ final class ChatViewModel: ObservableObject {
             }
         }
 
+        currentTask = task
         do {
             try task.run()
         } catch {
+            currentTask = nil
             // Launch failed — the terminationHandler never fires, so release
             // the pipe read sources here to avoid leaking file handles.
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
